@@ -89,11 +89,13 @@ jobs:
       # Lint's NewApi check is what actually catches "uses an API above minSdk 21" in code
       # (as opposed to the manifest-merger check above, which only catches a *dependency's*
       # declared minSdk). assembleDebug does not run the lint task, so it's invoked separately
-      # here. Only runs if the build itself succeeded -- if assembleDebug failed (e.g. the
-      # manifest-merger conflicts above), lint can't produce a meaningful result either.
+      # here. Always runs (even if assembleDebug failed) so lint results are visible on every
+      # run -- if assembleDebug failed on something lint also depends on (e.g. the manifest
+      # merger), lintDebug will fail at that same step and the report below will show it as a
+      # Gradle invocation failure rather than NewApi findings, but it still runs and is reported.
       - name: Run Android Lint (lintDebug)
         id: lint_debug
-        if: always() && steps.gradle_build.outputs.status == '0'
+        if: always()
         run: |
           set +o pipefail
           ./gradlew lintDebug --stacktrace 2>&1 | tee lint.log
@@ -104,7 +106,7 @@ jobs:
         if: always()
         env:
           GRADLE_STATUS: ${{ steps.gradle_build.outputs.status }}
-          LINT_RAN: ${{ steps.gradle_build.outputs.status == '0' }}
+          LINT_RAN: "true"
           LINT_STATUS: ${{ steps.lint_debug.outputs.status }}
           MIN_SDK_EXPECTED: "21"
         run: |
@@ -251,11 +253,15 @@ jobs:
       - name: Fail job if Gradle build or lint failed
         if: always()
         run: |
+          failed=0
           if [ "${{ steps.gradle_build.outputs.status }}" != "0" ]; then
             echo "::error::Gradle assembleDebug failed. See the job summary or the PR comment above for a report."
-            exit 1
+            failed=1
           fi
-          if [ "${{ steps.gradle_build.outputs.status }}" == "0" ] && [ "${{ steps.lint_debug.outputs.status }}" != "0" ]; then
-            echo "::error::Gradle lintDebug failed (NewApi / API 21 violations). See the job summary or the PR comment above for a report."
+          if [ "${{ steps.lint_debug.outputs.status }}" != "0" ]; then
+            echo "::error::Gradle lintDebug failed (NewApi / API 21 violations, or lint couldn't run because assembleDebug's own failure blocks it too). See the job summary or the PR comment above for a report."
+            failed=1
+          fi
+          if [ "$failed" != "0" ]; then
             exit 1
           fi
