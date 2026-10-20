@@ -423,7 +423,10 @@ dependencies {
     implementation "androidx.room:room-ktx:$roomVersion"
     implementation 'androidx.viewpager2:viewpager2:1.1.0'
     implementation 'androidx.work:work-runtime:2.11.2'
-    implementation 'com.google.android.material:material:1.14.0'
+    // Pinned below 1.14.0: that release bumped the library's own minSdkVersion to 23
+    // ("Update minSdkVersion to 23"), which breaks this project's minSdk 21 target via
+    // manifest merger. 1.13.0 is the last release still declaring minSdk 21.
+    implementation 'com.google.android.material:material:1.13.0'
     implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.2.0"
 
 /** ExoPlayer **/
