@@ -39,6 +39,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # app/build.gradle ships two subreddit-name lists in the APK as symlinks into a sibling
+      # checkout (../subreddit-lists relative to this repo's checkout). The build intentionally
+      # fails `verifyShippedSubredditLists` if that sibling checkout is missing, so it must be
+      # cloned here, next to this repo's checkout, before Gradle runs.
+      - name: Clone sibling subreddit-lists repo
+        run: |
+          sibling_dir="$(dirname "$GITHUB_WORKSPACE")/subreddit-lists"
+          rm -rf "$sibling_dir"
+          git clone --depth 1 https://github.com/cygnusx-1-org/subreddit-lists.git "$sibling_dir"
+          echo "subreddit-lists cloned at: $sibling_dir"
+          ls -la "$sibling_dir"
+
       - name: Verify versionName is pinned to 8.0.0.1
         run: |
           actual=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle)
