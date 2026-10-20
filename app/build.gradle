@@ -190,6 +190,14 @@ android {
         // therefore correct here, and the check only produced noise -- 183 entries of it already
         // sit in the baseline.
         disable 'LogNotTimber'
+        // NewApi is the check that catches calls to APIs above minSdk (21). It's on by default,
+        // but it's promoted to a build-breaking error here so CI's lintDebug step (see
+        // .github/workflows/ci-build-8.0.0.1.yml) actually fails on any API-22+ usage that isn't
+        // guarded by a Build.VERSION.SDK_INT check. The baseline only grandfathers findings that
+        // were already known when it was generated (under the former minSdk 24), so any NewApi
+        // violation that is specific to the API 21-22 range still surfaces as a fresh error.
+        error 'NewApi'
+        abortOnError true
     }
 
     namespace = 'ml.docilealligator.infinityforreddit'
@@ -396,33 +404,33 @@ dependencies {
 /** AndroidX **/
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.biometric:biometric:1.2.0-alpha05'
-    implementation 'androidx.browser:browser:1.10.0'
+    implementation 'androidx.browser:browser:1.9.0' // 1.10.0+ bumped minSdk to 23
     implementation 'androidx.cardview:cardview:1.0.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-    implementation 'androidx.activity:activity:1.13.0'
+    implementation 'androidx.activity:activity:1.11.0' // 1.12.0+ bumped minSdk to 23
     implementation 'androidx.fragment:fragment:1.8.9'
     implementation 'androidx.core:core-ktx:1.19.0'
-    def lifecycleVersion = "2.11.0"
+    def lifecycleVersion = "2.9.4" // 2.10.0+ bumped minSdk to 23
     implementation "androidx.lifecycle:lifecycle-common-java8:$lifecycleVersion"
     implementation "androidx.lifecycle:lifecycle-livedata:$lifecycleVersion"
     implementation "androidx.lifecycle:lifecycle-process:$lifecycleVersion"
     implementation "androidx.lifecycle:lifecycle-runtime:$lifecycleVersion"
     implementation "androidx.lifecycle:lifecycle-viewmodel:$lifecycleVersion"
 
-    def pagingVersion = '3.5.0'
+    def pagingVersion = '3.3.6' // 3.4.0+ bumped minSdk to 23
     implementation "androidx.paging:paging-runtime:$pagingVersion"
     implementation "androidx.paging:paging-guava:$pagingVersion"
     implementation 'androidx.preference:preference:1.2.1'
     implementation 'androidx.recyclerview:recyclerview:1.4.0'
-    implementation 'androidx.webkit:webkit:1.16.0'
-    def roomVersion = "2.8.4"
+    implementation 'androidx.webkit:webkit:1.14.0' // 1.15.0+ bumped minSdk to 23 (1.16.0+ to 24)
+    def roomVersion = "2.7.2" // 2.8.0+ bumped minSdk to 23
     implementation "androidx.room:room-runtime:$roomVersion"
     kapt "androidx.room:room-compiler:$roomVersion"
     implementation "androidx.room:room-guava:$roomVersion"
     implementation "androidx.room:room-ktx:$roomVersion"
     implementation 'androidx.viewpager2:viewpager2:1.1.0'
-    implementation 'androidx.work:work-runtime:2.11.2'
+    implementation 'androidx.work:work-runtime:2.10.5' // 2.11.0+ bumped minSdk to 23
     // Pinned below 1.14.0: that release bumped the library's own minSdkVersion to 23
     // ("Update minSdkVersion to 23"), which breaks this project's minSdk 21 target via
     // manifest merger. 1.13.0 is the last release still declaring minSdk 21.
@@ -430,7 +438,7 @@ dependencies {
     implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.2.0"
 
 /** ExoPlayer **/
-    def media3_version = "1.10.1"
+    def media3_version = "1.8.1" // 1.9.0+ bumped minSdk to 23
     implementation "androidx.media3:media3-exoplayer:$media3_version"
     implementation "androidx.media3:media3-exoplayer-dash:$media3_version"
     implementation "androidx.media3:media3-exoplayer-hls:$media3_version"
@@ -574,7 +582,7 @@ dependencies {
                 "androidx.compose.material3.adaptive:adaptive-android:1.1.0"
         )
     }
-    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.activity:activity-compose:1.11.0' // aligned with androidx.activity:activity
     implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4'
     implementation 'androidx.compose.runtime:runtime-livedata'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0'

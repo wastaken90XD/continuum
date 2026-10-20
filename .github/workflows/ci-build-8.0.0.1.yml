@@ -86,10 +86,26 @@ jobs:
           echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         shell: bash
 
+      # Lint's NewApi check is what actually catches "uses an API above minSdk 21" in code
+      # (as opposed to the manifest-merger check above, which only catches a *dependency's*
+      # declared minSdk). assembleDebug does not run the lint task, so it's invoked separately
+      # here. Only runs if the build itself succeeded -- if assembleDebug failed (e.g. the
+      # manifest-merger conflicts above), lint can't produce a meaningful result either.
+      - name: Run Android Lint (lintDebug)
+        id: lint_debug
+        if: always() && steps.gradle_build.outputs.status == '0'
+        run: |
+          set +o pipefail
+          ./gradlew lintDebug --stacktrace 2>&1 | tee lint.log
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
       - name: Generate build report
         if: always()
         env:
           GRADLE_STATUS: ${{ steps.gradle_build.outputs.status }}
+          LINT_RAN: ${{ steps.gradle_build.outputs.status == '0' }}
+          LINT_STATUS: ${{ steps.lint_debug.outputs.status }}
           MIN_SDK_EXPECTED: "21"
         run: |
           python3 - <<'PY'
@@ -100,13 +116,20 @@ jobs:
           log = pathlib.Path("build.log").read_text(errors="replace") if pathlib.Path("build.log").exists() else ""
           min_sdk_expected = os.environ.get("MIN_SDK_EXPECTED", "")
 
+          lint_ran = os.environ.get("LINT_RAN", "") == "true"
+          lint_status = os.environ.get("LINT_STATUS", "")
+          lint_passed = lint_status == "0"
+          lint_log = pathlib.Path("lint.log").read_text(errors="replace") if pathlib.Path("lint.log").exists() else ""
+
           lines = [
               "<!-- continuum-ci-build-8.0.0.1-report -->",
               f"## Continuum CI Build (8.0.0.1) Report (`{os.environ.get('GITHUB_SHA', '')[:12]}`)",
               "",
               f"**Gradle `assembleDebug`: {'PASSED' if passed else 'FAILED'}**",
-              "",
           ]
+          if lint_ran:
+              lines.append(f"**Gradle `lintDebug` (NewApi / API {min_sdk_expected} check): {'PASSED' if lint_passed else 'FAILED'}**")
+          lines.append("")
 
           if not passed:
               # Pull out the parts of a Gradle failure a human actually needs, rather than
@@ -145,7 +168,29 @@ jobs:
               lines.append(tail)
               lines.append("```")
           else:
-              lines.append(f"minSdk target for this run: `{min_sdk_expected}`. Build succeeded -- no diagnostics needed.")
+              lines.append(f"minSdk target for this run: `{min_sdk_expected}`. `assembleDebug` succeeded -- no build diagnostics needed.")
+
+          if lint_ran and not lint_passed:
+              lines.append("")
+              lines.append("### Lint findings (NewApi / code using APIs above minSdk)")
+              lines.append("")
+              # Lines like "...Foo.java:123: Error: Call requires API level 23 ... [NewApi]"
+              findings = [l for l in lint_log.splitlines() if re.search(r"\[NewApi\]", l) or re.search(r": (Error|Warning): .*API level", l)]
+              if findings:
+                  lines.append("```text")
+                  lines.extend(findings[:150])
+                  lines.append("```")
+                  lines.append("")
+              summary = re.search(r"^\d+ errors?, \d+ warnings?$", lint_log, re.MULTILINE)
+              if summary:
+                  lines.append(f"Summary: `{summary.group(0)}`")
+                  lines.append("")
+              tail = "\n".join(lint_log.splitlines()[-60:])
+              lines.append("### Lint diagnostic tail (last 60 lines)")
+              lines.append("")
+              lines.append("```text")
+              lines.append(tail)
+              lines.append("```")
 
           report = "\n".join(lines) + "\n"
           pathlib.Path("report.md").write_text(report)
@@ -184,6 +229,17 @@ jobs:
           path: build.log
           if-no-files-found: ignore
 
+      - name: Upload lint report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuum-8.0.0.1-lint-report
+          path: |
+            lint.log
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: ignore
+
       - name: Upload APK artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -192,10 +248,14 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
 
-      - name: Fail job if Gradle build failed
+      - name: Fail job if Gradle build or lint failed
         if: always()
         run: |
           if [ "${{ steps.gradle_build.outputs.status }}" != "0" ]; then
-            echo "::error::Gradle build failed. See the job summary or the PR comment above for a report."
+            echo "::error::Gradle assembleDebug failed. See the job summary or the PR comment above for a report."
+            exit 1
+          fi
+          if [ "${{ steps.gradle_build.outputs.status }}" == "0" ] && [ "${{ steps.lint_debug.outputs.status }}" != "0" ]; then
+            echo "::error::Gradle lintDebug failed (NewApi / API 21 violations). See the job summary or the PR comment above for a report."
             exit 1
           fi
