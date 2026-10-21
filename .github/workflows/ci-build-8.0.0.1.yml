@@ -84,8 +84,17 @@ jobs:
       # build/ dirs here lets compileDebugKotlin/compileDebugJavaWithJavac's incremental compilers
       # pick up where they left off. Keyed per-SHA (so every run saves a fresh entry) with a
       # prefix restore-key (so every run starts from the most recent available one).
+      # Using the split restore/save actions (rather than the combined actions/cache@v4 with
+      # save-always) because save-always is deprecated upstream ("does not work as intended") --
+      # see https://github.com/actions/cache/tree/main/save#always-save-cache. This job
+      # deliberately fails whenever lint finds a NewApi violation (see the "Fail job if Gradle
+      # build or lint failed" step below), and a normal actions/cache save (its "post" step) is
+      # skipped by GitHub Actions whenever the job's conclusion is a failure. The matching
+      # "Save incremental build directories" step further down explicitly runs with if: always()
+      # instead, so every run while a lint finding is outstanding still contributes its own
+      # intermediate compiler output back to the cache for the next run.
       - name: Restore incremental build directories
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             app/build
@@ -93,13 +102,6 @@ jobs:
           key: incremental-build-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
             incremental-build-${{ runner.os }}-
-          # This job deliberately fails whenever lint finds a NewApi violation (see the "Fail
-          # job if Gradle build or lint failed" step below), and actions/cache's save (its
-          # "post" step) is skipped by GitHub Actions whenever the job's conclusion is a
-          # failure, unless told otherwise. Without save-always, every run while a lint
-          # finding is outstanding would restore from stale/older state but never contribute
-          # its own intermediate compiler output back to the cache for the next run.
-          save-always: true
 
       # The cache restore above is only meant to seed Gradle/Kotlin's *intermediate* incremental
       # compilation state. The final APK and lint report are small and quick to regenerate, and
@@ -137,6 +139,20 @@ jobs:
           ./gradlew lintDebug --stacktrace 2>&1 | tee lint.log
           echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         shell: bash
+
+      # Explicit save (rather than relying on actions/cache@v4's own post-step) so this still
+      # runs even when assembleDebug or lintDebug fails -- see the comment on "Restore
+      # incremental build directories" above. Always overwrites this SHA's own key with
+      # whatever got compiled in this run, win or lose, since even a failed compile leaves
+      # usable incremental state for the sources that *did* compile.
+      - name: Save incremental build directories
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/build
+            lint-checks/build
+          key: incremental-build-${{ runner.os }}-${{ github.sha }}
 
       - name: Generate build report
         if: always()
