@@ -1,9 +1,9 @@
 package ml.docilealligator.infinityforreddit.post;
 
 import android.net.Uri;
-import android.text.Html;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.text.HtmlCompat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -353,7 +353,10 @@ public class FetchRemovedPost {
             return null;
         }
         // The archive stores the url html-escaped (&amp;); the image loader needs the raw url.
-        url = Html.fromHtml(url, Html.FROM_HTML_MODE_LEGACY).toString();
+        // android.text.Html#fromHtml(String, int) requires API 24; HtmlCompat's equivalent
+        // overload is backed by that same platform call on 24+ but falls back to the legacy
+        // (API 1) deprecated Html.fromHtml(String) on older devices, so it works down to minSdk 21.
+        url = HtmlCompat.fromHtml(url, HtmlCompat.FROM_HTML_MODE_LEGACY).toString();
         int width = source.optInt("width", 0);
         int height = source.optInt("height", 0);
         ArrayList<Post.Preview> previews = new ArrayList<>();

@@ -93,6 +93,13 @@ jobs:
           key: incremental-build-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
             incremental-build-${{ runner.os }}-
+          # This job deliberately fails whenever lint finds a NewApi violation (see the "Fail
+          # job if Gradle build or lint failed" step below), and actions/cache's save (its
+          # "post" step) is skipped by GitHub Actions whenever the job's conclusion is a
+          # failure, unless told otherwise. Without save-always, every run while a lint
+          # finding is outstanding would restore from stale/older state but never contribute
+          # its own intermediate compiler output back to the cache for the next run.
+          save-always: true
 
       # The cache restore above is only meant to seed Gradle/Kotlin's *intermediate* incremental
       # compilation state. The final APK and lint report are small and quick to regenerate, and

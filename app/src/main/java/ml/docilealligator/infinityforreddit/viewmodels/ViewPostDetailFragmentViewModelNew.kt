@@ -68,6 +68,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import retrofit2.Response
 import retrofit2.Retrofit
+import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
@@ -200,14 +201,19 @@ class ViewPostDetailFragmentViewModelNew(
      * pass that stopped early are deliberately not recorded here, so they are retried rather than
      * written off as absent.
      */
-    private val recoveryAttemptedIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    // ConcurrentHashMap.newKeySet() (and the KeySetView it returns) requires API 24 and isn't
+    // desugared; Collections.newSetFromMap(ConcurrentHashMap()) is the same thread-safe Set
+    // and has been available since API 1.
+    private val recoveryAttemptedIds: MutableSet<String> =
+        Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
     /**
      * Ids an automatic pass is still asking the archive about, so the menu and the explicit action
      * do not ask again. Apart from [recoveryAttemptedIds] because none of these is answered yet: a
      * pass that stops early hands its ids back.
      */
-    private val recoveryInFlightIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val recoveryInFlightIds: MutableSet<String> =
+        Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
     /**
      * Archived bodies that arrived after their comments were drawn. Never patched into the list —
