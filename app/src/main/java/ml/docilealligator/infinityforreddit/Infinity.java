@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.Application;
 import android.app.WallpaperColors;
 import android.app.WallpaperManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
@@ -391,27 +393,43 @@ public class Infinity extends Application implements DefaultLifecycleObserver {
      * same transitions this callback does.
      */
     private void registerNetworkStatusCallback() {
-        ConnectivityManager connectivityManager = getSystemService(ConnectivityManager.class);
+        // getSystemService(Class<T>) requires API 23; the string-keyed overload it's sugar for
+        // has been available since API 1 and is the only one that works down to minSdk 21.
+        ConnectivityManager connectivityManager =
+                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivityManager == null) {
             return;
         }
 
-        connectivityManager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
-            @Override
-            public void onAvailable(@NonNull Network network) {
-                postConnectedNetworkIfChanged();
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            // registerDefaultNetworkCallback requires API 24.
+            connectivityManager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(@NonNull Network network) {
+                    postConnectedNetworkIfChanged();
+                }
 
-            @Override
-            public void onLost(@NonNull Network network) {
-                postConnectedNetworkIfChanged();
-            }
+                @Override
+                public void onLost(@NonNull Network network) {
+                    postConnectedNetworkIfChanged();
+                }
 
-            @Override
-            public void onCapabilitiesChanged(@NonNull Network network, @NonNull NetworkCapabilities networkCapabilities) {
-                postConnectedNetworkIfChanged();
-            }
-        });
+                @Override
+                public void onCapabilitiesChanged(@NonNull Network network, @NonNull NetworkCapabilities networkCapabilities) {
+                    postConnectedNetworkIfChanged();
+                }
+            });
+        } else {
+            // Below API 24, registerDefaultNetworkCallback isn't available; fall back to the
+            // deprecated-since-28 (but still functional, and the only option on 21-23) sticky
+            // broadcast that reports the same kind of transition.
+            registerReceiver(new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    postConnectedNetworkIfChanged();
+                }
+            }, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+        }
     }
 
     /**
