@@ -60,6 +60,11 @@
             android:parentActivityName=".activities.MainActivity"
             android:theme="@style/AppTheme.ComposeActivity" />
         <activity
+            android:name=".cookieauth.CookieLoginActivity"
+            android:exported="false"
+            android:parentActivityName=".activities.MainActivity"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
             android:name=".activities.CopyMultiRedditActivity"
             android:exported="false"
             android:parentActivityName=".activities.MainActivity"
