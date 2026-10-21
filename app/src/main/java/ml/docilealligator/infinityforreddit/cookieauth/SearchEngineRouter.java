@@ -4,27 +4,56 @@ import android.content.Context;
 import androidx.annotation.Nullable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import ml.docilealligator.infinityforreddit.apis.RedditAPI;
+import ml.docilealligator.infinityforreddit.post.ParsePost;
+import ml.docilealligator.infinityforreddit.post.Post;
+import ml.docilealligator.infinityforreddit.postfilter.PostFilter;
+import ml.docilealligator.infinityforreddit.readpost.NullReadPostsList;
 import org.json.JSONArray;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 /**
  * "Query designer": picks which {@link SearchBackend} actually runs a search, falling back to a
- * second one on error/captcha/empty results, per {@link SearchEngineSettings}. Also the one-call
- * "search, then fetch full post JSON for every result" pipeline described in
- * {@link FourGetSearchClient}'s class doc -- no post-ID resolution step, just
- * {@code <result url>.json} through the cookie-session auth path.
+ * second one on error/captcha/empty results, per {@link SearchEngineSettings}.
+ *
+ * <p>{@link #searchRedditPosts} is the one-call "search, then turn the matching results into real
+ * posts" pipeline: a 4get/Google CSE/Reddit-native search only ever needs to tell us <i>which</i>
+ * Reddit posts matched -- it does not need its own post-fetching or JSON-parsing code, because the
+ * app already has one: {@link RedditAPI#getInfo}, the same bulk by-fullname lookup
+ * {@code HistoryPostPagingSource} uses to turn a bare list of post IDs into real
+ * {@link Post} objects via {@link ParsePost#parsePostsSync}. This is that same lookup, run over
+ * the cookie-session client instead of OAuth, so a search engine swap never means a second,
+ * parallel way of turning a post ID into a {@link Post}.
  */
 public final class SearchEngineRouter {
-    /** Matches a Reddit post permalink -- the shape {@code .json} can be appended to directly. */
-    private static final Pattern POST_PERMALINK = Pattern.compile("reddit\\.com/r/[^/]+/comments/[^/]+");
+    /**
+     * Matches a Reddit post permalink -- these are the only result URLs {@link #searchRedditPosts}
+     * can do anything with -- capturing the post's base-36 id (e.g. {@code abc123} out of
+     * {@code .../comments/abc123/some_title/}) needed for {@link RedditAPI#getInfo}'s
+     * {@code t3_<id>} fullname.
+     */
+    private static final Pattern POST_PERMALINK = Pattern.compile("reddit\\.com/r/[^/]+/comments/([A-Za-z0-9]+)");
 
     private SearchEngineRouter() {
     }
 
     public static boolean isPostPermalink(@Nullable String url) {
         return url != null && POST_PERMALINK.matcher(url).find();
+    }
+
+    @Nullable
+    private static String postIdFromPermalink(@Nullable String url) {
+        if (url == null) {
+            return null;
+        }
+        Matcher m = POST_PERMALINK.matcher(url);
+        return m.find() ? m.group(1) : null;
     }
 
     /** Runs a search with the configured primary engine, falling back once on failure. */
@@ -35,8 +64,8 @@ public final class SearchEngineRouter {
     }
 
     public interface PostResultsCallback {
-        /** Raw per-post JSON (the {@code <permalink>.json} body), one entry per resolved post. */
-        void onPosts(JSONArray postJsonArray);
+        /** Real, fully-parsed posts -- ready for whatever already displays a {@link Post} list. */
+        void onPosts(List<Post> posts);
 
         void onCaptchaRequired(String captchaUrl);
 
@@ -44,31 +73,34 @@ public final class SearchEngineRouter {
     }
 
     /**
-     * The full "search, then just fetch {@code .json} for every result" pipeline: runs
-     * {@link #search}, keeps only results that look like Reddit post permalinks, and fetches
-     * each one's full post + comments JSON via {@link CookieRedditPostFetcher}. A result that
-     * fails to resolve is dropped rather than failing the whole search; {@link PostResultsCallback#onError}
-     * only fires if every result failed (or there were no post-shaped results to begin with).
+     * The full "search, then hand the matches to the app's existing post-fetching code" pipeline:
+     * runs {@link #search}, keeps only results that look like Reddit post permalinks, and resolves
+     * all of them in a single {@link RedditAPI#getInfo} call -- exactly the lookup
+     * {@code HistoryPostPagingSource} already uses to turn a list of post ids into real posts, just
+     * run over the cookie session instead of OAuth/anonymous. {@link PostResultsCallback#onError}
+     * fires only if nothing in this search's results was a Reddit post permalink, or the lookup
+     * itself failed.
      */
     public static void searchRedditPosts(Context context, String query, @Nullable String subreddit,
                                           @Nullable String user, PostResultsCallback callback) {
         search(context, query, subreddit, user, new SearchCallback() {
             @Override
             public void onResults(JSONArray results) {
-                List<String> postUrls = new ArrayList<>();
+                List<String> postIds = new ArrayList<>();
                 for (int i = 0; i < results.length(); i++) {
                     String url = results.optJSONObject(i) == null ? null : results.optJSONObject(i).optString("url", null);
-                    if (isPostPermalink(url)) {
-                        postUrls.add(url);
+                    String id = postIdFromPermalink(url);
+                    if (id != null) {
+                        postIds.add(id);
                     }
                 }
 
-                if (postUrls.isEmpty()) {
+                if (postIds.isEmpty()) {
                     callback.onError(new IOException("No Reddit post results in this search"));
                     return;
                 }
 
-                resolveAll(context, postUrls, callback);
+                resolvePosts(context, postIds, callback);
             }
 
             @Override
@@ -83,40 +115,43 @@ public final class SearchEngineRouter {
         });
     }
 
-    private static void resolveAll(Context context, List<String> urls, PostResultsCallback callback) {
-        JSONArray postJsonArray = new JSONArray();
-        Object lock = new Object();
-        AtomicInteger remaining = new AtomicInteger(urls.size());
-
-        for (String url : urls) {
-            CookieRedditPostFetcher.fetchPostJson(context, url, new CookieRedditPostFetcher.Callback() {
-                @Override
-                public void onPostJson(String json) {
-                    synchronized (lock) {
-                        postJsonArray.put(json);
-                    }
-                    finishOne();
-                }
-
-                @Override
-                public void onError(Exception e) {
-                    // One bad post shouldn't sink the whole search -- just drop it.
-                    finishOne();
-                }
-
-                private void finishOne() {
-                    if (remaining.decrementAndGet() == 0) {
-                        synchronized (lock) {
-                            if (postJsonArray.length() == 0) {
-                                callback.onError(new IOException("Every matched post failed to resolve"));
-                            } else {
-                                callback.onPosts(postJsonArray);
-                            }
-                        }
-                    }
-                }
-            });
+    /**
+     * Turns matched post ids into real {@link Post} objects via the app's existing bulk by-fullname
+     * lookup ({@link RedditAPI#getInfo}, through the cookie-session Retrofit client), parsed with
+     * the same {@link ParsePost#parsePostsSync} every other post listing in the app already uses.
+     */
+    private static void resolvePosts(Context context, List<String> postIds, PostResultsCallback callback) {
+        StringBuilder fullnames = new StringBuilder();
+        for (String id : postIds) {
+            fullnames.append("t3_").append(id).append(',');
         }
+        fullnames.setLength(fullnames.length() - 1);
+
+        Call<String> call = CookieRetrofitClient.getInstance(context).create(RedditAPI.class).getInfo(fullnames.toString());
+        call.enqueue(new Callback<String>() {
+            @Override
+            public void onResponse(Call<String> call, Response<String> response) {
+                if (!response.isSuccessful()) {
+                    callback.onError(new IOException("HTTP " + response.code() + " resolving search results"));
+                    return;
+                }
+
+                LinkedHashSet<Post> posts = ParsePost.parsePostsSync(response.body(), -1, new PostFilter(),
+                        NullReadPostsList.getInstance());
+                if (posts == null) {
+                    callback.onError(new IOException("Error parsing search results"));
+                } else if (posts.isEmpty()) {
+                    callback.onError(new IOException("None of the matched posts could be resolved"));
+                } else {
+                    callback.onPosts(new ArrayList<>(posts));
+                }
+            }
+
+            @Override
+            public void onFailure(Call<String> call, Throwable t) {
+                callback.onError(t instanceof Exception ? (Exception) t : new IOException(t));
+            }
+        });
     }
 
     private static void searchWithEngine(Context context, SearchEngineSettings.SearchEngine engine,

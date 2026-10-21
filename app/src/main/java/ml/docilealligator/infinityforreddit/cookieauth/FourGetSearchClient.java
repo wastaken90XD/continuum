@@ -23,14 +23,14 @@ import org.json.JSONObject;
  * instance instead of the public one.
  *
  * <p>4get's {@code web[]} results already carry the real destination URL -- for a
- * {@code site:reddit.com} query that is almost always a direct Reddit permalink. There is no
- * post-ID resolution step needed: {@link SearchEngineRouter#searchRedditPosts} takes that URL
- * and fetches {@code <url>.json} straight through the cookie-session auth path
- * ({@link RedditCookieInterceptor} appends the {@code .json} itself), which is the full post +
- * comments payload, same shape as the app's existing {@code /comments/{id}.json} parsing
- * expects. This sidesteps Reddit's own search endpoint (and its rate limits/captchas) entirely
- * for the discovery step; the per-post {@code .json} fetches afterwards still count against the
- * normal Reddit request budget like any other page view would.
+ * {@code site:reddit.com} query that is almost always a direct Reddit permalink, with the post id
+ * right there in it. There is no extra resolution step on this end: this client's only job is
+ * finding <i>which</i> posts matched; {@link SearchEngineRouter#searchRedditPosts} pulls the id out
+ * of each matching permalink and hands the whole batch to the app's existing bulk post lookup
+ * ({@code RedditAPI#getInfo}, the same one {@code HistoryPostPagingSource} uses), through the
+ * cookie-session auth path instead of OAuth. This sidesteps Reddit's own search endpoint (and its
+ * rate limits/captchas) entirely for the discovery step; the lookup afterwards still counts
+ * against the normal Reddit request budget like any other page view would.
  */
 public class FourGetSearchClient implements SearchBackend {
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
