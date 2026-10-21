@@ -717,6 +717,9 @@
     <string name="settings_account_settings_management_summary">Copy another account\'s settings onto this one, put this one back to defaults, or delete what it has accumulated</string>
     <string name="settings_group_themes">Themes</string>
     <string name="settings_group_other">Other</string>
+    <string name="settings_group_cookie_auth">Cookie Auth (Experimental)</string>
+    <string name="settings_cookie_login_title">Log in with Reddit Cookie</string>
+    <string name="settings_cookie_login_summary">Experimental: logs in through a WebView and saves the session cookie for the cookie-based auth path. Impersonates a browser session -- against Reddit\'s Terms of Service and carries account-flagging risk; the app\'s normal OAuth login does not have this risk.</string>
     <string name="settings_copy_settings_from_account_title">Copy Settings from Another Account</string>
     <string name="settings_copy_settings_from_account_summary">Give this account the settings another one has</string>
     <string name="settings_copy_settings_from_account_no_other_summary">There is no other account to copy from</string>

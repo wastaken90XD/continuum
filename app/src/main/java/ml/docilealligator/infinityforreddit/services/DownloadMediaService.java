@@ -52,6 +52,7 @@ import ml.docilealligator.infinityforreddit.activities.ViewVideoActivity;
 import ml.docilealligator.infinityforreddit.apis.DownloadFile;
 import ml.docilealligator.infinityforreddit.apis.StreamableAPI;
 import ml.docilealligator.infinityforreddit.broadcastreceivers.DownloadedMediaDeleteActionBroadcastReceiver;
+import ml.docilealligator.infinityforreddit.cookieauth.CookieAuthConstants;
 import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
 import ml.docilealligator.infinityforreddit.events.ShareMediaEvent;
 import ml.docilealligator.infinityforreddit.post.FetchImageHostMedia;
@@ -751,12 +752,25 @@ public class DownloadMediaService extends JobService {
                             .body(new DownloadProgressResponseBody(originalResponse.body(), progressListener))
                             .build();
                 })
-                .addInterceptor(chain -> chain.proceed(
-                        chain.request()
-                                .newBuilder()
-                                .header("User-Agent", APIUtils.USER_AGENT)
-                                .build()
-                ))
+                .addInterceptor(chain -> {
+                    okhttp3.Request.Builder requestBuilder = chain.request().newBuilder();
+                    String host = chain.request().url().host();
+                    if (isRedditHostedMediaHost(host)) {
+                        // A Reddit-hosted CDN host (i.redd.it/preview.redd.it/v.redd.it/etc.):
+                        // match the cookie-session auth path's UA and attach the saved session
+                        // cookie, in case the CDN starts requiring it the way the listing/comments
+                        // endpoints now do. Harmless no-op when no cookie has been saved yet.
+                        requestBuilder.header("User-Agent", CookieAuthConstants.CHROME_USER_AGENT);
+                        String cookie = getSharedPreferences(CookieAuthConstants.COOKIE_PREFS_NAME, MODE_PRIVATE)
+                                .getString(CookieAuthConstants.COOKIE_PREFS_KEY, null);
+                        if (cookie != null && !cookie.isEmpty()) {
+                            requestBuilder.header("Cookie", cookie);
+                        }
+                    } else {
+                        requestBuilder.header("User-Agent", APIUtils.USER_AGENT);
+                    }
+                    return chain.proceed(requestBuilder.build());
+                })
                 .build();
 
         // Keep this call's Retrofit local. A JobService instance is shared by every job routed to
@@ -1196,6 +1210,15 @@ public class DownloadMediaService extends JobService {
     private static String replaceExtension(String fileName, String extension) {
         int dot = fileName.lastIndexOf('.');
         return (dot <= 0 ? fileName : fileName.substring(0, dot)) + "." + extension;
+    }
+
+    /**
+     * Whether {@code host} is one of Reddit's own CDN hosts for post media (as opposed to Imgur,
+     * Redgifs, Streamable, or any other third-party host this service also downloads from).
+     */
+    private static boolean isRedditHostedMediaHost(String host) {
+        return host != null && (host.endsWith("redd.it") || host.endsWith("reddit.com")
+                || host.endsWith("redditmedia.com") || host.endsWith("redditstatic.com"));
     }
 
     /**

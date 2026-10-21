@@ -11,6 +11,7 @@ import ml.docilealligator.infinityforreddit.R;
 import ml.docilealligator.infinityforreddit.activities.CommentFilterPreferenceActivity;
 import ml.docilealligator.infinityforreddit.activities.LinkResolverActivity;
 import ml.docilealligator.infinityforreddit.activities.PostFilterPreferenceActivity;
+import ml.docilealligator.infinityforreddit.cookieauth.CookieLoginActivity;
 import ml.docilealligator.infinityforreddit.customviews.preference.CustomFontPreferenceFragmentCompat;
 import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 
@@ -25,6 +26,7 @@ public class MainPreferenceFragment extends CustomFontPreferenceFragmentCompat {
         Preference postFilterPreference = findPreference(SharedPreferencesUtils.POST_FILTER);
         Preference commentFilterPreference = findPreference(SharedPreferencesUtils.COMMENT_FILTER);
         Preference privacyPolicyPreference = findPreference(SharedPreferencesUtils.PRIVACY_POLICY_KEY);
+        Preference cookieLoginPreference = findPreference("cookie_login");
 
         if (!mActivity.isDeviceCredentialAvailable()) {
             if (securityPreference != null) {
@@ -63,6 +65,13 @@ public class MainPreferenceFragment extends CustomFontPreferenceFragmentCompat {
                     mActivity.startActivity(intent);
                     return true;
                 }
+            });
+        }
+
+        if (cookieLoginPreference != null) {
+            cookieLoginPreference.setOnPreferenceClickListener(preference -> {
+                mActivity.startActivity(CookieLoginActivity.createIntent(mActivity));
+                return true;
             });
         }
     }
