@@ -41,6 +41,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.appcompat.view.menu.MenuItemImpl;
@@ -660,6 +661,11 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomFo
 
     // The requested rate does not take effect until the window has been laid out and the display
     // scheduler has switched, so we read the actual active rate again a short time after create.
+    // Display#getMode() requires API 23; this is only called from applyPreferredRefreshRate(),
+    // which already returns early on SDK_INT < M, but lint can't follow that guard through a
+    // private helper method (and especially not through the postDelayed lambda below), so the
+    // requirement is declared explicitly here.
+    @RequiresApi(Build.VERSION_CODES.M)
     private void logEffectiveRefreshRateAfterSettle(Window window, Display display) {
         window.getDecorView().postDelayed(() -> {
             float effective = display.getMode().getRefreshRate();
