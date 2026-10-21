@@ -124,6 +124,45 @@ jobs:
           echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         shell: bash
 
+      # One-off diagnostic (not a permanent part of the pipeline): breaks down what's actually
+      # inside the debug APK(s) by size, since raw Actions logs and artifact downloads aren't
+      # reachable from every environment (see the file header), but this sticky-comment report
+      # is. Runs even if assembleDebug failed, in case a split-ABI APK still got produced before
+      # the failure.
+      - name: Analyze APK size
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, zipfile
+
+          out_dir = pathlib.Path("app/build/outputs/apk/debug")
+          lines = []
+          apks = sorted(out_dir.glob("*.apk")) if out_dir.exists() else []
+          if not apks:
+              lines.append("No debug APK found under app/build/outputs/apk/debug.")
+          for apk in apks:
+              total = apk.stat().st_size
+              lines.append(f"=== {apk.name}: {total:,} bytes ({total / 1024 / 1024:.1f} MiB) ===")
+              with zipfile.ZipFile(apk) as zf:
+                  infos = zf.infolist()
+                  # Aggregate by top-level path segment (lib/, assets/, res/, META-INF/, root files).
+                  by_group = {}
+                  for info in infos:
+                      name = info.filename
+                      group = name.split("/")[0] if "/" in name else name
+                      by_group[group] = by_group.get(group, 0) + info.file_size
+                  lines.append("-- by top-level group (uncompressed size) --")
+                  for group, size in sorted(by_group.items(), key=lambda kv: -kv[1])[:20]:
+                      lines.append(f"  {size:>12,}  {group}")
+                  lines.append("-- largest 25 individual entries (uncompressed size) --")
+                  for info in sorted(infos, key=lambda i: -i.file_size)[:25]:
+                      lines.append(f"  {info.file_size:>12,}  {info.filename}")
+                  lines.append("")
+          pathlib.Path("apk-size-report.txt").write_text("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PY
+        shell: bash
+
       # Lint's NewApi check is what actually catches "uses an API above minSdk 21" in code
       # (as opposed to the manifest-merger check above, which only catches a *dependency's*
       # declared minSdk). assembleDebug does not run the lint task, so it's invoked separately
@@ -273,6 +312,15 @@ jobs:
               lines.append("")
               lines.append("```text")
               lines.append(tail)
+              lines.append("```")
+
+          apk_size_report = pathlib.Path("apk-size-report.txt")
+          if apk_size_report.exists():
+              lines.append("")
+              lines.append("### APK size breakdown (one-off diagnostic)")
+              lines.append("")
+              lines.append("```text")
+              lines.append(apk_size_report.read_text(errors="replace").strip())
               lines.append("```")
 
           report = "\n".join(lines) + "\n"
