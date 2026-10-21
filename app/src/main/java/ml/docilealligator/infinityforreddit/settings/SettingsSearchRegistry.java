@@ -2,10 +2,11 @@ package ml.docilealligator.infinityforreddit.settings;
 
 import android.content.Context;
 import android.content.res.XmlResourceParser;
-import android.os.LocaleList;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.core.os.ConfigurationCompat;
+import androidx.core.os.LocaleListCompat;
 import androidx.fragment.app.Fragment;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -127,7 +128,10 @@ public class SettingsSearchRegistry {
     }
 
     private static Locale localeOf(Context ctx) {
-        LocaleList locales = ctx.getResources().getConfiguration().getLocales();
+        // Configuration#getLocales() (returning the platform LocaleList) requires API 24;
+        // ConfigurationCompat.getLocales() is the AndroidX equivalent that falls back to the
+        // deprecated single Configuration#locale field below API 24, working down to minSdk 21.
+        LocaleListCompat locales = ConfigurationCompat.getLocales(ctx.getResources().getConfiguration());
         return locales.isEmpty() ? Locale.getDefault() : locales.get(0);
     }
 
