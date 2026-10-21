@@ -14,6 +14,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.LinkedBlockingQueue
@@ -100,8 +101,14 @@ object FetchImageHostMedia {
     /**
      * Page URLs a prefetch is already reading, so several rows asking for the same album at once
      * read the page once between them.
+     *
+     * ConcurrentHashMap.newKeySet() (and the KeySetView class it returns) requires API 24, and
+     * isn't covered by core library desugaring (desugaring backports JDK language/library
+     * additions, not Android-platform-only API level gates like this one). Collections.newSetFromMap
+     * backed by a plain ConcurrentHashMap gives the same thread-safe Set semantics and has been
+     * available since API 1.
      */
-    private val prefetching = ConcurrentHashMap.newKeySet<String>()
+    private val prefetching = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
     /** Hands a resolved album to a feed or post-detail row. Never called for one that failed. */
     fun interface AlbumListener {
