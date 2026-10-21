@@ -720,6 +720,30 @@
     <string name="settings_group_cookie_auth">Cookie Auth (Experimental)</string>
     <string name="settings_cookie_login_title">Log in with Reddit Cookie</string>
     <string name="settings_cookie_login_summary">Experimental: logs in through a WebView and saves the session cookie for the cookie-based auth path. Impersonates a browser session -- against Reddit\'s Terms of Service and carries account-flagging risk; the app\'s normal OAuth login does not have this risk.</string>
+    <string name="settings_search_engine_settings_title">Search Engine Settings</string>
+    <string name="settings_search_engine_settings_summary">Choose which engine searches Reddit for the cookie-auth path, configure 4get/Google CSE, and manage the 4get captcha budget</string>
+
+    <string name="settings_search_engine_primary_title">Primary Search Engine</string>
+    <string name="settings_search_engine_fallback_title">Fallback Search Engine</string>
+    <string name="settings_search_engine_fourget">4get (meta-search)</string>
+    <string name="settings_search_engine_google_cse">Google Custom Search</string>
+    <string name="settings_search_engine_reddit_native">Reddit search.json</string>
+    <string name="settings_search_engine_none">None (fail instead)</string>
+
+    <string name="settings_fourget_group">4get</string>
+    <string name="settings_fourget_instance_url_title">4get Instance URL</string>
+    <string name="settings_fourget_instance_url_summary">Point at a self-hosted luuul/4get instance instead of the public 4get.ca</string>
+    <string name="settings_fourget_captcha_budget_title">Searches Trusted per Captcha Solve</string>
+    <string name="settings_fourget_captcha_budget_summary">After solving a 4get captcha, treat the next N captcha challenges as temporary and retry through the fallback engine instead of asking you to solve another one right away</string>
+    <string name="settings_fourget_captcha_solved_now_title">I Just Solved a 4get Captcha</string>
+    <string name="settings_fourget_captcha_solved_now_summary">Resets the trusted-searches counter to the budget above</string>
+    <string name="settings_fourget_captcha_solved_now_done_summary">Trusted for the next %1$d searches</string>
+
+    <string name="settings_google_cse_group">Google Custom Search</string>
+    <string name="settings_google_cse_api_key_title">Google CSE API Key</string>
+    <string name="settings_google_cse_cx_title">Google CSE Search Engine ID (cx)</string>
+    <string name="settings_google_cse_summary">Free for up to 100 queries/day; create one at programmablesearchengine.google.com</string>
+    <string name="tap_to_set_value">Tap to set</string>
     <string name="settings_copy_settings_from_account_title">Copy Settings from Another Account</string>
     <string name="settings_copy_settings_from_account_summary">Give this account the settings another one has</string>
     <string name="settings_copy_settings_from_account_no_other_summary">There is no other account to copy from</string>

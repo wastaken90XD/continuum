@@ -17,39 +17,30 @@ import org.json.JSONObject;
 
 /**
  * Search via the <a href="https://4get.ca">4get.ca</a> meta-search API instead of Reddit's own
- * {@code /search.json}, which frequently captchas anonymous/automated-looking traffic.
- * {@link #BASE_URL} is swappable for a self-hosted <a
- * href="https://github.com/luuul/4get">luuul/4get</a> Docker instance.
+ * {@code /search.json}, which frequently captchas anonymous/automated-looking traffic. The
+ * instance URL is user-configurable (see {@link SearchEngineSettings#getFourGetInstanceUrl}) so
+ * this can point at a self-hosted <a href="https://github.com/luuul/4get">luuul/4get</a> Docker
+ * instance instead of the public one.
  *
- * <p>Falls back to Reddit's own {@code /search.json} (via the cookie-session auth path, see
- * {@link RedditCookieInterceptor}) on a captcha/error response or an empty result set, and
- * reports {@link Callback#onError} if that fails too. Results from either path are normalized to
- * the same {@code {"url": ..., "title": ...}} shape so callers don't need to branch on which path
- * answered.
+ * <p>4get's {@code web[]} results already carry the real destination URL -- for a
+ * {@code site:reddit.com} query that is almost always a direct Reddit permalink. There is no
+ * post-ID resolution step needed: {@link SearchEngineRouter#searchRedditPosts} takes that URL
+ * and fetches {@code <url>.json} straight through the cookie-session auth path
+ * ({@link RedditCookieInterceptor} appends the {@code .json} itself), which is the full post +
+ * comments payload, same shape as the app's existing {@code /comments/{id}.json} parsing
+ * expects. This sidesteps Reddit's own search endpoint (and its rate limits/captchas) entirely
+ * for the discovery step; the per-post {@code .json} fetches afterwards still count against the
+ * normal Reddit request budget like any other page view would.
  */
-public final class FourGetSearchClient {
-    /** Swappable for a self-hosted instance. */
-    public static String BASE_URL = "https://4get.ca";
-
+public class FourGetSearchClient implements SearchBackend {
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .build();
 
-    private FourGetSearchClient() {
-    }
-
-    public interface Callback {
-        void onResults(JSONArray results);
-
-        /** A captcha challenge was hit; {@code captchaUrl} is where the user can solve it. */
-        void onCaptchaRequired(String captchaUrl);
-
-        void onError(Exception e);
-    }
-
-    public static void search(Context context, String query, @Nullable String subreddit,
-                               @Nullable String user, Callback callback) {
+    @Override
+    public void search(Context context, String query, @Nullable String subreddit,
+                        @Nullable String user, SearchCallback callback) {
         String scope;
         if (subreddit != null && !subreddit.isEmpty()) {
             scope = "site:reddit.com/r/" + subreddit;
@@ -60,7 +51,8 @@ public final class FourGetSearchClient {
         }
 
         String encodedQuery = urlEncode(scope + " " + query);
-        String url = BASE_URL + "/api/v1/web?s=" + encodedQuery + "&lang=en";
+        String instanceUrl = SearchEngineSettings.getFourGetInstanceUrl(context);
+        String url = instanceUrl + "/api/v1/web?s=" + encodedQuery + "&lang=en";
 
         Request request = new Request.Builder()
                 .url(url)
@@ -70,106 +62,66 @@ public final class FourGetSearchClient {
         CLIENT.newCall(request).enqueue(new okhttp3.Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                fallbackToRedditSearch(context, query, subreddit, callback);
-            }
-
-            @Override
-            public void onResponse(Call call, Response response) {
-                try (Response r = response) {
-                    if (r.code() == 403 || r.code() == 429) {
-                        callback.onCaptchaRequired(BASE_URL);
-                        return;
-                    }
-
-                    if (!r.isSuccessful() || r.body() == null) {
-                        fallbackToRedditSearch(context, query, subreddit, callback);
-                        return;
-                    }
-
-                    JSONObject json = new JSONObject(r.body().string());
-
-                    if (json.has("error")) {
-                        fallbackToRedditSearch(context, query, subreddit, callback);
-                        return;
-                    }
-
-                    JSONArray web = json.optJSONArray("web");
-                    if (web == null || web.length() == 0) {
-                        fallbackToRedditSearch(context, query, subreddit, callback);
-                        return;
-                    }
-
-                    callback.onResults(rewriteToReddit(web));
-                } catch (JSONException | IOException e) {
-                    fallbackToRedditSearch(context, query, subreddit, callback);
-                }
-            }
-        });
-    }
-
-    private static JSONArray rewriteToReddit(JSONArray web) throws JSONException {
-        JSONArray rewritten = new JSONArray();
-        for (int i = 0; i < web.length(); i++) {
-            JSONObject item = web.getJSONObject(i);
-            String url = item.optString("url", null);
-            if (url != null) {
-                Uri rewrittenUri = Uri.parse(url).buildUpon().authority("www.reddit.com").build();
-                item.put("url", rewrittenUri.toString());
-            }
-            rewritten.put(item);
-        }
-        return rewritten;
-    }
-
-    /** Falls back to Reddit's own search, through the cookie-session auth path. */
-    private static void fallbackToRedditSearch(Context context, String query,
-                                                @Nullable String subreddit, Callback callback) {
-        String path = (subreddit != null && !subreddit.isEmpty())
-                ? "r/" + subreddit + "/search.json?q=" + urlEncode(query) + "&restrict_sr=1"
-                : "search.json?q=" + urlEncode(query);
-
-        OkHttpClient fallbackClient = new OkHttpClient.Builder()
-                .addInterceptor(new RedditCookieInterceptor(context))
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .build();
-
-        Request request = new Request.Builder()
-                .url("https://www.reddit.com/" + path)
-                .build();
-
-        fallbackClient.newCall(request).enqueue(new okhttp3.Callback() {
-            @Override
-            public void onFailure(Call call, IOException e) {
                 callback.onError(e);
             }
 
             @Override
             public void onResponse(Call call, Response response) {
                 try (Response r = response) {
+                    if (r.code() == 403 || r.code() == 429) {
+                        callback.onCaptchaRequired(instanceUrl);
+                        return;
+                    }
+
                     if (!r.isSuccessful() || r.body() == null) {
-                        callback.onError(new IOException("Reddit search.json HTTP " + r.code()));
+                        callback.onError(new IOException("4get HTTP " + r.code()));
                         return;
                     }
 
                     JSONObject json = new JSONObject(r.body().string());
-                    JSONArray children = json.getJSONObject("data").getJSONArray("children");
 
-                    JSONArray results = new JSONArray();
-                    for (int i = 0; i < children.length(); i++) {
-                        JSONObject postData = children.getJSONObject(i).getJSONObject("data");
-                        JSONObject normalized = new JSONObject();
-                        normalized.put("url", "https://www.reddit.com" + postData.optString("permalink", ""));
-                        normalized.put("title", postData.optString("title", ""));
-                        results.put(normalized);
+                    if (json.has("error")) {
+                        callback.onError(new IOException("4get error: " + json.optString("error")));
+                        return;
                     }
 
-                    callback.onResults(results);
+                    JSONArray web = json.optJSONArray("web");
+                    if (web == null || web.length() == 0) {
+                        callback.onError(new IOException("4get returned no results"));
+                        return;
+                    }
+
+                    callback.onResults(normalize(web));
                 } catch (JSONException | IOException e) {
                     callback.onError(e);
                 }
             }
         });
+    }
+
+    private static JSONArray normalize(JSONArray web) throws JSONException {
+        JSONArray results = new JSONArray();
+        for (int i = 0; i < web.length(); i++) {
+            JSONObject item = web.getJSONObject(i);
+            String url = item.optString("url", null);
+            JSONObject normalized = new JSONObject();
+            if (url != null) {
+                // 4get's scrapers can occasionally surface a near-match outside reddit.com (an
+                // archive/cache mirror, for instance) despite the site: filter; only rewrite
+                // results that are actually on reddit.com, so anything else is left as-is rather
+                // than being silently relabelled as a Reddit URL it isn't.
+                Uri uri = Uri.parse(url);
+                String host = uri.getHost();
+                if (host != null && host.endsWith("reddit.com")) {
+                    url = uri.buildUpon().scheme("https").authority("www.reddit.com").build().toString();
+                }
+            }
+            normalized.put("url", url);
+            normalized.put("title", item.optString("title", ""));
+            normalized.put("description", item.optString("description", ""));
+            results.put(normalized);
+        }
+        return results;
     }
 
     private static String urlEncode(String value) {

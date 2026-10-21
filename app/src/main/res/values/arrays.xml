@@ -1020,4 +1020,30 @@
         <item>112</item>
     </string-array>
 
+    <string-array name="settings_search_engine_entries">
+        <item>@string/settings_search_engine_fourget</item>
+        <item>@string/settings_search_engine_google_cse</item>
+        <item>@string/settings_search_engine_reddit_native</item>
+    </string-array>
+
+    <string-array name="settings_search_engine_values">
+        <item>FOURGET</item>
+        <item>GOOGLE_CSE</item>
+        <item>REDDIT_NATIVE</item>
+    </string-array>
+
+    <string-array name="settings_search_fallback_engine_entries">
+        <item>@string/settings_search_engine_fourget</item>
+        <item>@string/settings_search_engine_google_cse</item>
+        <item>@string/settings_search_engine_reddit_native</item>
+        <item>@string/settings_search_engine_none</item>
+    </string-array>
+
+    <string-array name="settings_search_fallback_engine_values">
+        <item>FOURGET</item>
+        <item>GOOGLE_CSE</item>
+        <item>REDDIT_NATIVE</item>
+        <item>NONE</item>
+    </string-array>
+
 </resources>
