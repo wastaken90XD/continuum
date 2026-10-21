@@ -239,6 +239,25 @@ jobs:
               if summary:
                   lines.append(f"Summary: `{summary.group(0)}`")
                   lines.append("")
+
+              # lintDebug can also fail for a reason that has nothing to do with a NewApi
+              # finding (a different lint check, or the Gradle invocation itself erroring out),
+              # in which case `findings` above is empty. Surface Gradle's own "What went wrong"
+              # block the same way the build-failure branch above does, so that case is never
+              # silently represented as an empty findings section.
+              if not findings:
+                  lint_what_went_wrong = re.search(
+                      r"(\* What went wrong:\n(?:.+\n)+?)(?:\n\* Try:|\nBUILD FAILED|\Z)",
+                      lint_log,
+                  )
+                  if lint_what_went_wrong:
+                      lines.append("### Lint: what went wrong (not a NewApi finding)")
+                      lines.append("")
+                      lines.append("```text")
+                      lines.append(lint_what_went_wrong.group(1).strip())
+                      lines.append("```")
+                      lines.append("")
+
               tail = "\n".join(lint_log.splitlines()[-60:])
               lines.append("### Lint diagnostic tail (last 60 lines)")
               lines.append("")
