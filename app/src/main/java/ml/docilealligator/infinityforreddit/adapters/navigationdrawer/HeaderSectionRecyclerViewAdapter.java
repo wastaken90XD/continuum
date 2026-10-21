@@ -1,8 +1,5 @@
 package ml.docilealligator.infinityforreddit.adapters.navigationdrawer;
 
-import static androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG;
-import static androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL;
-
 import android.content.SharedPreferences;
 import android.content.res.Resources;
 import android.view.LayoutInflater;
@@ -12,13 +9,9 @@ import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.biometric.BiometricManager;
-import androidx.biometric.BiometricPrompt;
-import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.RequestManager;
-import java.util.concurrent.Executor;
 import jp.wasabeef.glide.transformations.RoundedCornersTransformation;
 import ml.docilealligator.infinityforreddit.R;
 import ml.docilealligator.infinityforreddit.account.Account;
@@ -125,26 +118,11 @@ public class HeaderSectionRecyclerViewAdapter extends RecyclerView.Adapter<Recyc
             holder.itemView.setOnClickListener(view -> {
                 if (isInMainPage) {
                     if (requireAuthToAccountSection) {
-                        BiometricManager biometricManager = BiometricManager.from(baseActivity);
-                        if (biometricManager.canAuthenticate(BIOMETRIC_STRONG | DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS) {
-                            Executor executor = ContextCompat.getMainExecutor(baseActivity);
-                            BiometricPrompt biometricPrompt = new BiometricPrompt(baseActivity,
-                                    executor, new BiometricPrompt.AuthenticationCallback() {
-                                @Override
-                                public void onAuthenticationSucceeded(
-                                        @NonNull BiometricPrompt.AuthenticationResult result) {
-                                    super.onAuthenticationSucceeded(result);
-                                    pageToggle.openAccountManagement();
-                                    openAccountManagement(((NavHeaderViewHolder) holder).binding.accountSwitcherImageViewNavHeaderMain);
-                                }
-                            });
-
-                            BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
-                                    .setTitle(baseActivity.getString(R.string.unlock_account_section))
-                                    .setAllowedAuthenticators(BIOMETRIC_STRONG | DEVICE_CREDENTIAL)
-                                    .build();
-
-                            biometricPrompt.authenticate(promptInfo);
+                        if (baseActivity.isDeviceCredentialAvailable()) {
+                            baseActivity.confirmDeviceCredential(baseActivity.getString(R.string.unlock_account_section), null, () -> {
+                                pageToggle.openAccountManagement();
+                                openAccountManagement(((NavHeaderViewHolder) holder).binding.accountSwitcherImageViewNavHeaderMain);
+                            }, null);
                         } else {
                             pageToggle.openAccountManagement();
                             openAccountManagement(((NavHeaderViewHolder) holder).binding.accountSwitcherImageViewNavHeaderMain);

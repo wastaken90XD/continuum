@@ -1,8 +1,5 @@
 package ml.docilealligator.infinityforreddit.bottomsheetfragments;
 
-import static androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG;
-import static androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL;
-
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
@@ -11,9 +8,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.biometric.BiometricManager;
-import androidx.biometric.BiometricPrompt;
-import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.ViewModelProvider;
 import com.bumptech.glide.Glide;
@@ -96,31 +90,8 @@ public class AccountChooserBottomSheetFragment extends LandscapeExpandedRoundedB
         super.onViewCreated(view, savedInstanceState);
 
         if (sharedPreferences.getBoolean(SharedPreferencesUtils.REQUIRE_AUTHENTICATION_TO_GO_TO_ACCOUNT_SECTION_IN_NAVIGATION_DRAWER, false)) {
-            BiometricManager biometricManager = BiometricManager.from(activity);
-            if (biometricManager.canAuthenticate(BIOMETRIC_STRONG | DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS) {
-                Executor executor = ContextCompat.getMainExecutor(activity);
-                BiometricPrompt biometricPrompt = new BiometricPrompt(this,
-                        executor, new BiometricPrompt.AuthenticationCallback() {
-                    @Override
-                    public void onAuthenticationSucceeded(
-                            @NonNull BiometricPrompt.AuthenticationResult result) {
-                        super.onAuthenticationSucceeded(result);
-                        observeAccounts();
-                    }
-
-                    @Override
-                    public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
-                        super.onAuthenticationError(errorCode, errString);
-                        dismiss();
-                    }
-                });
-
-                BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
-                        .setTitle(getString(R.string.unlock))
-                        .setAllowedAuthenticators(BIOMETRIC_STRONG | DEVICE_CREDENTIAL)
-                        .build();
-
-                biometricPrompt.authenticate(promptInfo);
+            if (activity.isDeviceCredentialAvailable()) {
+                activity.confirmDeviceCredential(getString(R.string.unlock), null, this::observeAccounts, this::dismiss);
             } else {
                 dismiss();
             }
