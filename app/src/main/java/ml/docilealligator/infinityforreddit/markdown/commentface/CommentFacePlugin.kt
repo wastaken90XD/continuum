@@ -10,6 +10,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.text.Layout
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -342,10 +343,18 @@ internal class CommentFaceCaption private constructor(
             CommentFaceCaptionStyle.Align.CENTER -> Layout.Alignment.ALIGN_CENTER
             CommentFaceCaptionStyle.Align.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
         }
-        return StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
-            .setAlignment(alignment)
-            .setIncludePad(false)
-            .build()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
+                .setAlignment(alignment)
+                .setIncludePad(false)
+                .build()
+        } else {
+            // StaticLayout.Builder requires API 23; fall back to the deprecated constructor below
+            // that, using the same spacing (mult=1, add=0) and includePad=false the Builder path
+            // above requests.
+            @Suppress("DEPRECATION")
+            StaticLayout(text, paint, width, alignment, 1f, 0f, false)
+        }
     }
 
     /** Draws [layout] filled with [fill], over an outline when the stylesheet gives the text a shadow. */
