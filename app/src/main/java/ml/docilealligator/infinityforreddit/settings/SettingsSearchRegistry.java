@@ -132,7 +132,11 @@ public class SettingsSearchRegistry {
         // ConfigurationCompat.getLocales() is the AndroidX equivalent that falls back to the
         // deprecated single Configuration#locale field below API 24, working down to minSdk 21.
         LocaleListCompat locales = ConfigurationCompat.getLocales(ctx.getResources().getConfiguration());
-        return locales.isEmpty() ? Locale.getDefault() : locales.get(0);
+        // get(int) is annotated @Nullable (it can return null for an out-of-range index), even
+        // though index 0 of a list already confirmed non-empty always has an element -- so this
+        // null check is for NullAway's static analysis, not a case that can happen at runtime.
+        Locale locale = locales.isEmpty() ? null : locales.get(0);
+        return locale != null ? locale : Locale.getDefault();
     }
 
     /**
