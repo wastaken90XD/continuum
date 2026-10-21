@@ -129,6 +129,10 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomFo
      * initializer runs before onCreate, which is what registerForActivityResult requires), not
      * lazily inside {@link #confirmDeviceCredential}, or androidx.activity throws.
      */
+    @Nullable
+    private Runnable pendingDeviceCredentialSuccess;
+    @Nullable
+    private Runnable pendingDeviceCredentialFailure;
     private final ActivityResultLauncher<Intent> deviceCredentialLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
                 Runnable onSuccess = pendingDeviceCredentialSuccess;
@@ -143,10 +147,6 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomFo
                     onFailure.run();
                 }
             });
-    @Nullable
-    private Runnable pendingDeviceCredentialSuccess;
-    @Nullable
-    private Runnable pendingDeviceCredentialFailure;
     private boolean isImmersiveInterfaceApplicable = true;
     @SuppressWarnings("NullAway.Init")
     private View navBarScrim;
