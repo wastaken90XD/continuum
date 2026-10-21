@@ -356,7 +356,10 @@ public class DownloadMediaService extends JobService {
 
         // Pass the received subreddit, NSFW status, and title to the extras
         extras.putString(EXTRA_SUBREDDIT_NAME, subredditName);
-        extras.putBoolean(EXTRA_IS_NSFW, isNsfw);
+        // PersistableBundle#putBoolean requires API 22; putInt matches the pattern used
+        // elsewhere in this file and is read back by the Boolean/Integer-tolerant parsing
+        // logic in onStartJob() below.
+        extras.putInt(EXTRA_IS_NSFW, isNsfw ? 1 : 0);
         extras.putString(EXTRA_TITLE, title); // Add title as well for consistency
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -424,7 +427,10 @@ public class DownloadMediaService extends JobService {
         extras.putString(EXTRA_ALL_GALLERY_IMAGE_MEDIA_TYPES, concatMediaTypesBuilder.toString());
         extras.putString(EXTRA_ALL_GALLERY_IMAGE_FILE_NAMES, concatFileNamesBuilder.toString());
         extras.putString(EXTRA_SUBREDDIT_NAME, subredditName);
-        extras.putBoolean(EXTRA_IS_NSFW, isNsfw);
+        // PersistableBundle#putBoolean requires API 22; putInt matches the pattern used
+        // elsewhere in this file and is read back by the Boolean/Integer-tolerant parsing
+        // logic in onStartJob() below.
+        extras.putInt(EXTRA_IS_NSFW, isNsfw ? 1 : 0);
         extras.putString(EXTRA_TITLE, title);
         extras.putInt(EXTRA_MEDIA_TYPE, EXTRA_MEDIA_TYPE_IMAGE);
 
