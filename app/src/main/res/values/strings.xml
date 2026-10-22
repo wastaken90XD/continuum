@@ -102,6 +102,9 @@
     <string name="action_add_to_post_filter">Add to Post Filter</string>
     <string name="action_delete_logs">Delete Logs</string>
     <string name="action_create_github_issue">Create GitHub Issue</string>
+    <string name="action_copy_logs">Copy Logs</string>
+    <string name="crash_reports_copy_failed">Cannot copy the logs</string>
+    <string name="crash_reports_no_logs_found">No crash reports found</string>
     <string name="action_share_post_link">Share Post Link</string>
     <string name="action_go_to_wiki">Go to Wiki</string>
     <string name="action_playback_speed">Playback Speed</string>

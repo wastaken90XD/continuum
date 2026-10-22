@@ -13,4 +13,10 @@
         android:title="@string/action_create_github_issue"
         android:icon="@drawable/ic_open_link_day_night_24dp"
         app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_copy_logs_crash_reports_fragment"
+        android:orderInCategory="3"
+        android:title="@string/action_copy_logs"
+        android:icon="@drawable/ic_copy_day_night_24dp"
+        app:showAsAction="ifRoom" />
 </menu>

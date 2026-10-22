@@ -4,5 +4,8 @@
     android:layout_height="wrap_content"
     android:paddingStart="16dp"
     android:paddingEnd="16dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:textIsSelectable="true"
     android:textColor="?attr/primaryTextColor"
     android:textSize="?attr/font_default" />
