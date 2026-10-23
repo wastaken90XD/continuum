@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.webkit.CookieManager;
@@ -12,7 +13,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AppCompatActivity;
 import java.util.concurrent.Executor;
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -20,7 +20,9 @@ import ml.docilealligator.infinityforreddit.Infinity;
 import ml.docilealligator.infinityforreddit.R;
 import ml.docilealligator.infinityforreddit.RedditDataRoomDatabase;
 import ml.docilealligator.infinityforreddit.account.FetchMyInfo;
+import ml.docilealligator.infinityforreddit.activities.BaseActivity;
 import ml.docilealligator.infinityforreddit.asynctasks.ParseAndInsertNewAccount;
+import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
 import ml.docilealligator.infinityforreddit.events.NewUserLoggedInEvent;
 import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 import org.greenrobot.eventbus.EventBus;
@@ -37,13 +39,23 @@ import retrofit2.Retrofit;
  * login so every existing account-aware feature (switching, multi-account, the nav drawer) keeps
  * working unchanged.
  *
+ * <p>Extends {@link BaseActivity} (not a plain {@code AppCompatActivity}) for the same reason
+ * {@code LoginActivity} always has: {@code BaseActivity.onCreate} is what actually applies the
+ * day/night custom-theme style overlay ({@code Theme.Normal}/{@code Theme.Normal.NormalDark}/
+ * {@code Theme.Normal.AmoledDark}) on top of the manifest's base Material3 theme. Skipping it (as
+ * an earlier version of this activity did, back when it never showed any view beyond the WebView
+ * itself) left {@code Toast.makeText} crashing with an unresolved Material color attribute the
+ * moment this activity needed to show one, since {@code AppCompatViewInflater}/
+ * {@code MaterialComponentsViewInflater} intercepts even Android's own internal toast layout's
+ * {@code TextView} and expects that overlay's attributes to resolve.
+ *
  * <p>This is the one piece of the cookie-auth path that unavoidably impersonates a browser rather
  * than using Reddit's API: there is no official API for interactively signing a user in and
  * getting back a session cookie. Doing this is against Reddit's Terms of Service for anything
  * other than an actual browser session and risks the account being flagged -- see the disclosure
  * given to the user before this was made the app's primary auth path.
  */
-public class CookieLoginActivity extends AppCompatActivity {
+public class CookieLoginActivity extends BaseActivity {
     public static final int REQUEST_CODE = 9041;
     private static final String LOGIN_URL = "https://www.reddit.com/login";
 
@@ -56,8 +68,14 @@ public class CookieLoginActivity extends AppCompatActivity {
     @Named("current_account")
     SharedPreferences mCurrentAccountSharedPreferences;
     @Inject
+    @Named("default")
+    SharedPreferences mSharedPreferences;
+    @Inject
+    CustomThemeWrapper mCustomThemeWrapper;
+    @Inject
     Executor mExecutor;
 
+    private WebView webView;
     private boolean finished;
     private boolean fetchingAccountInfo;
 
@@ -68,11 +86,15 @@ public class CookieLoginActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
         ((Infinity) getApplication()).getAppComponent().inject(this);
 
-        WebView webView = new WebView(this);
+        setImmersiveModeNotApplicableBelowAndroid16();
+
+        super.onCreate(savedInstanceState);
+
+        webView = new WebView(this);
         setContentView(webView);
+        applyCustomTheme();
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -144,7 +166,7 @@ public class CookieLoginActivity extends AppCompatActivity {
                     @Override
                     public void onFetchMyInfoFailed(boolean parseFailed) {
                         fetchingAccountInfo = false;
-                        Toast.makeText(CookieLoginActivity.this,
+                        Toast.makeText(getApplicationContext(),
                                 parseFailed ? R.string.parse_user_info_error : R.string.cannot_fetch_user_info,
                                 Toast.LENGTH_SHORT).show();
                     }
@@ -155,5 +177,42 @@ public class CookieLoginActivity extends AppCompatActivity {
         finished = true;
         setResult(Activity.RESULT_OK);
         finish();
+    }
+
+    @Override
+    public SharedPreferences getDefaultSharedPreferences() {
+        return mSharedPreferences;
+    }
+
+    @Override
+    public SharedPreferences getCurrentAccountSharedPreferences() {
+        return mCurrentAccountSharedPreferences;
+    }
+
+    @Override
+    public CustomThemeWrapper getCustomThemeWrapper() {
+        return mCustomThemeWrapper;
+    }
+
+    @Override
+    protected void applyCustomTheme() {
+        if (webView != null) {
+            webView.setBackgroundColor(mCustomThemeWrapper.getBackgroundColor());
+        }
+    }
+
+    @Override
+    public void setCustomFont(@Nullable Typeface typeface, @Nullable Typeface titleTypeface, @Nullable Typeface contentTypeface) {
+        // Nothing here but the WebView itself -- no app-drawn text to re-font.
+    }
+
+    @Override
+    public void saveResumeState(@androidx.annotation.NonNull Bundle out) {
+        // A one-shot login screen has nothing worth resuming back onto.
+    }
+
+    @Override
+    public void restoreResumeState(@androidx.annotation.NonNull Bundle state) {
+        // Nothing saved above, so nothing to restore.
     }
 }
