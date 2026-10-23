@@ -2,9 +2,9 @@ package ml.docilealligator.infinityforreddit.cookieauth;
 
 /**
  * Shared constants for the cookie-session Reddit auth path (Continuum spec, "implement_full"
- * option). This is a parallel, additive module: it does not replace the app's existing
- * (working) OAuth stack -- see the disclosure given before this was built. It exists so the six
- * classes the spec calls for compile and are available to wire in incrementally.
+ * option). This is now the app's real, primary Reddit authentication path -- see
+ * {@link RedditCookieInterceptor} and {@link CookieLoginActivity} -- not an optional add-on; see
+ * the disclosure given to the user before it was made the default.
  */
 public final class CookieAuthConstants {
     private CookieAuthConstants() {

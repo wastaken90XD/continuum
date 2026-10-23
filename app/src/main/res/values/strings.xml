@@ -722,7 +722,7 @@
     <string name="settings_group_other">Other</string>
     <string name="settings_group_cookie_auth">Cookie Auth (Experimental)</string>
     <string name="settings_cookie_login_title">Log in with Reddit Cookie</string>
-    <string name="settings_cookie_login_summary">Experimental: logs in through a WebView and saves the session cookie for the cookie-based auth path. Impersonates a browser session -- against Reddit\'s Terms of Service and carries account-flagging risk; the app\'s normal OAuth login does not have this risk.</string>
+    <string name="settings_cookie_login_summary">Logs in through a WebView and saves the session cookie this app uses for all Reddit access (the same login used by \"Add account\"). Impersonates a browser session -- against Reddit\'s Terms of Service and carries account-flagging risk.</string>
     <string name="settings_search_engine_settings_title">Search Engine Settings</string>
     <string name="settings_search_engine_settings_summary">Choose which engine searches Reddit for the cookie-auth path, configure 4get/Google CSE, and manage the 4get captcha budget</string>
 

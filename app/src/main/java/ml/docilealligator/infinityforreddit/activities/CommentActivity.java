@@ -73,7 +73,7 @@ import ml.docilealligator.infinityforreddit.markdown.emote.EmoteCloseBracketInli
 import ml.docilealligator.infinityforreddit.markdown.emote.EmotePlugin;
 import ml.docilealligator.infinityforreddit.markdown.imageandgif.ImageAndGifEntry;
 import ml.docilealligator.infinityforreddit.markdown.imageandgif.ImageAndGifPlugin;
-import ml.docilealligator.infinityforreddit.network.AnyAccountAccessTokenAuthenticator;
+import ml.docilealligator.infinityforreddit.cookieauth.RedditCookieInterceptor;
 import ml.docilealligator.infinityforreddit.repositories.CommentActivityRepository;
 import ml.docilealligator.infinityforreddit.thing.GiphyGif;
 import ml.docilealligator.infinityforreddit.thing.UploadedImage;
@@ -609,7 +609,9 @@ public class CommentActivity extends BaseActivity implements UploadImageEnabledA
         sendingSnackbar.show();
 
         Retrofit newAuthenticatorOauthRetrofit = mOauthRetrofit.newBuilder()
-            .client(new OkHttpClient.Builder().authenticator(new AnyAccountAccessTokenAuthenticator(APIUtils.getClientId(getApplicationContext()), mRetrofit, mRedditDataRoomDatabase, account, mCurrentAccountSharedPreferences))
+            // Pins this request to `account`'s own cookie regardless of which account is current --
+            // commenting as a specific account in a multi-account flow.
+            .client(new OkHttpClient.Builder().addInterceptor(new RedditCookieInterceptor(account.getAccessToken()))
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

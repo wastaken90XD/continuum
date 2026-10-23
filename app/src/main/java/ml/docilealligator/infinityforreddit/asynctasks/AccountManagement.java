@@ -7,15 +7,17 @@ import java.util.concurrent.Executor;
 import ml.docilealligator.infinityforreddit.RedditDataRoomDatabase;
 import ml.docilealligator.infinityforreddit.account.Account;
 import ml.docilealligator.infinityforreddit.account.AccountDao;
+import ml.docilealligator.infinityforreddit.cookieauth.CookieAuthConstants;
 import ml.docilealligator.infinityforreddit.resume.ResumeState;
 import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 
 public class AccountManagement {
 
-    public static void switchAccount(RedditDataRoomDatabase redditDataRoomDatabase,
+    public static void switchAccount(Context context, RedditDataRoomDatabase redditDataRoomDatabase,
                                      SharedPreferences currentAccountSharedPreferences, Executor executor,
                                      Handler handler, String newAccountName,
                                      SwitchAccountListener switchAccountListener) {
+        Context appContext = context.getApplicationContext();
         executor.execute(() -> {
             redditDataRoomDatabase.accountDao().markAllAccountsNonCurrent();
             redditDataRoomDatabase.accountDao().markAccountCurrent(newAccountName);
@@ -27,6 +29,16 @@ public class AccountManagement {
             currentAccountSharedPreferences.edit()
                     .remove(SharedPreferencesUtils.SUBSCRIBED_THINGS_SYNC_TIME)
                     .remove(SharedPreferencesUtils.INBOX_COUNT)
+                    .apply();
+            // RedditCookieInterceptor's primary lookup is the current-account slot above; this
+            // standalone file is kept in sync too, since DownloadMediaService/CookieDownloadManager/
+            // WebViewMediaHandler read it directly rather than going through the Dagger-provided
+            // Retrofit client. Accounts logged in before the cookie auth path became primary have
+            // no cookie here yet (accessToken is an old OAuth token) -- those helpers simply find
+            // nothing saved until the user logs that account out and back in.
+            appContext.getSharedPreferences(CookieAuthConstants.COOKIE_PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(CookieAuthConstants.COOKIE_PREFS_KEY, account.getAccessToken())
                     .apply();
             handler.post(() -> switchAccountListener.switched(account));
         });
@@ -59,6 +71,13 @@ public class AccountManagement {
             currentAccountSharedPreferences.edit()
                     .putString(SharedPreferencesUtils.REDGIFS_ACCESS_TOKEN, redgifsAccessToken)
                     .putInt(SharedPreferencesUtils.INBOX_COUNT, 0)
+                    .apply();
+
+            // No account is current any more -- an old session cookie left behind here would let
+            // downloads/media WebViews keep acting as the logged-out account's last session.
+            appContext.getSharedPreferences(CookieAuthConstants.COOKIE_PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .remove(CookieAuthConstants.COOKIE_PREFS_KEY)
                     .apply();
 
             handler.post(switchToAnonymousAccountAsyncTaskListener::logoutSuccess);

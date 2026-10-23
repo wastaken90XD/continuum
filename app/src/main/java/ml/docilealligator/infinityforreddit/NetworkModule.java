@@ -13,7 +13,7 @@ import ml.docilealligator.infinityforreddit.apimonitor.ApiCallTracker;
 import ml.docilealligator.infinityforreddit.apimonitor.ApiMonitorEventListener;
 import ml.docilealligator.infinityforreddit.apis.StreamableAPI;
 import ml.docilealligator.infinityforreddit.apis.StreamableAPIKt;
-import ml.docilealligator.infinityforreddit.network.AccessTokenAuthenticator;
+import ml.docilealligator.infinityforreddit.cookieauth.RedditCookieInterceptor;
 import ml.docilealligator.infinityforreddit.network.AnonymousAccessTokenInterceptor;
 import ml.docilealligator.infinityforreddit.network.PreferenceProxySelector;
 import ml.docilealligator.infinityforreddit.network.RedgifsAccessTokenAuthenticator;
@@ -126,14 +126,15 @@ abstract class NetworkModule {
     @Singleton
     static OkHttpClient provideOkHttpClient(Context context,
         @Named("base") OkHttpClient httpClient,
-        @Named("base") Retrofit retrofit,
-        RedditDataRoomDatabase redditDataRoomDatabase,
         @Named("current_account") SharedPreferences currentAccountSharedPreferences,
         ConnectionPool connectionPool) {
 
+        // The app's real, primary Reddit auth path (Continuum spec: "OAuth replaced entirely by a
+        // browser cookie session"). RedditCookieInterceptor rewrites every request onto
+        // www.reddit.com with the current account's saved session cookie attached, instead of
+        // refreshing/attaching an OAuth bearer token -- see its own javadoc for the ToS caveat.
         return httpClient.newBuilder()
-            // Fetch clientId once and pass it to the authenticator
-            .authenticator(new AccessTokenAuthenticator(APIUtils.getClientId(context), retrofit, redditDataRoomDatabase, currentAccountSharedPreferences))
+            .addInterceptor(new RedditCookieInterceptor(context, currentAccountSharedPreferences))
             .connectionPool(connectionPool)
             .build();
     }
@@ -197,8 +198,13 @@ abstract class NetworkModule {
     @Provides
     @Named("oauth_without_authenticator")
     @Singleton
-    static Retrofit provideOauthWithoutAuthenticatorRetrofit(@Named("base") Retrofit retrofit) {
-        return retrofit.newBuilder().baseUrl(APIUtils.OAUTH_API_BASE_URI).build();
+    static Retrofit provideOauthWithoutAuthenticatorRetrofit(@Named("base") Retrofit retrofit,
+                                                              @Named("default") OkHttpClient okHttpClient) {
+        // This variant used to exist purely to avoid AccessTokenAuthenticator's interactive
+        // token-refresh side effects in background work (e.g. PullNotificationWorker). The cookie
+        // interceptor on @Named("default") is passive (it just reads a saved cookie), so there is
+        // no longer a reason for this to be any different from the normal oauth client.
+        return retrofit.newBuilder().baseUrl(APIUtils.OAUTH_API_BASE_URI).client(okHttpClient).build();
     }
 
     @Provides

@@ -94,6 +94,7 @@ import ml.docilealligator.infinityforreddit.bottomsheetfragments.PostLayoutBotto
 import ml.docilealligator.infinityforreddit.bottomsheetfragments.PostTypeBottomSheetFragment;
 import ml.docilealligator.infinityforreddit.bottomsheetfragments.SortTimeBottomSheetFragment;
 import ml.docilealligator.infinityforreddit.bottomsheetfragments.SortTypeBottomSheetFragment;
+import ml.docilealligator.infinityforreddit.cookieauth.CookieLoginActivity;
 import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
 import ml.docilealligator.infinityforreddit.customviews.LinearLayoutManagerBugFixed;
 import ml.docilealligator.infinityforreddit.customviews.NavigationWrapper;
@@ -636,7 +637,7 @@ public class MainActivity extends BaseActivity implements SortTypeSelectionCallb
 
         if (mNewAccountName != null) {
             if (accountName.equals(Account.ANONYMOUS_ACCOUNT) || !accountName.equals(mNewAccountName)) {
-                AccountManagement.switchAccount(mRedditDataRoomDatabase, mCurrentAccountSharedPreferences,
+                AccountManagement.switchAccount(MainActivity.this, mRedditDataRoomDatabase, mCurrentAccountSharedPreferences,
                         mExecutor, new Handler(), mNewAccountName, newAccount -> {
                             EventBus.getDefault().post(new SwitchAccountEvent(getClass().getName()));
                             Toast.makeText(this, R.string.account_switched, Toast.LENGTH_SHORT).show();
@@ -1168,20 +1169,10 @@ public class MainActivity extends BaseActivity implements SortTypeSelectionCallb
                         } else if (stringId == R.string.settings) {
                             intent = new Intent(MainActivity.this, SettingsActivity.class);
                         } else if (stringId == R.string.add_account) {
-                            // Explicitly get default SharedPreferences with MODE_PRIVATE as requested
-                            SharedPreferences defaultPrefs = getSharedPreferences(SharedPreferencesUtils.DEFAULT_PREFERENCES_FILE, Context.MODE_PRIVATE);
-                            boolean overridesEnabled = defaultPrefs.getBoolean(SharedPreferencesUtils.ENABLE_API_KEY_OVERRIDES_PREF_KEY, false);
-                            String currentClientId = defaultPrefs.getString(SharedPreferencesUtils.CLIENT_ID_PREF_KEY, getString(R.string.default_client_id));
-                            // Only block login when overrides are on but no custom Client ID has been set.
-                            // With overrides off, the valid built-in default Client ID is used.
-                            if (overridesEnabled && getString(R.string.default_client_id).equals(currentClientId)) {
-                                new MaterialAlertDialogBuilder(MainActivity.this, R.style.MaterialAlertDialogTheme)
-                                        .setMessage(R.string.set_client_id_dialog_message)
-                                        .setPositiveButton(R.string.ok, null)
-                                        .show();
-                            } else {
-                                intent = new Intent(MainActivity.this, LoginActivity.class);
-                            }
+                            // Cookie-session login (CookieLoginActivity) has no OAuth client ID to
+                            // configure, so the old client-ID-override gate before LoginActivity no
+                            // longer applies here.
+                            intent = CookieLoginActivity.createIntent(MainActivity.this);
                         } else if (stringId == R.string.anonymous_account) {
                             AccountManagement.switchToAnonymousMode(MainActivity.this, mRedditDataRoomDatabase, mCurrentAccountSharedPreferences,
                                     mExecutor, new Handler(), false, () -> {
@@ -1213,7 +1204,7 @@ public class MainActivity extends BaseActivity implements SortTypeSelectionCallb
 
                     @Override
                     public void onAccountClick(@NonNull String accountName) {
-                        AccountManagement.switchAccount(mRedditDataRoomDatabase, mCurrentAccountSharedPreferences,
+                        AccountManagement.switchAccount(MainActivity.this, mRedditDataRoomDatabase, mCurrentAccountSharedPreferences,
                                 mExecutor, new Handler(), accountName, newAccount -> {
                             Intent intent = new Intent(MainActivity.this, MainActivity.class);
                             startActivity(intent);
@@ -1235,7 +1226,7 @@ public class MainActivity extends BaseActivity implements SortTypeSelectionCallb
             @Override
             public void onMenuLongClick(int stringId) {
                 if (stringId == R.string.add_account) {
-                    Intent intent = new Intent(MainActivity.this, LoginActivity.class);
+                    Intent intent = CookieLoginActivity.createIntent(MainActivity.this);
                     startActivity(intent);
                     binding.drawerLayout.closeDrawers();
                 }
