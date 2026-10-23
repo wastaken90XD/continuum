@@ -9,7 +9,8 @@
         android:layout_height="wrap_content"
         android:scaleType="centerCrop" />
 
-    <com.google.android.material.loadingindicator.LoadingIndicator
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:indeterminate="true"
         android:id="@+id/progress_bar_item_reddit_gallery_submission_image"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

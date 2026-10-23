@@ -6,7 +6,8 @@
     android:layout_height="match_parent"
     tools:context=".fragments.MorePostsInfoFragment">
 
-    <com.google.android.material.loadingindicator.LoadingIndicator
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:indeterminate="true"
         android:id="@+id/progress_bar_view_more_posts_info_fragment"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

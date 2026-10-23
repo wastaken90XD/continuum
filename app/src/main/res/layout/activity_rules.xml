@@ -32,7 +32,8 @@
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <com.google.android.material.loadingindicator.LoadingIndicator
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:indeterminate="true"
         android:id="@+id/progress_bar_rules_activity"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

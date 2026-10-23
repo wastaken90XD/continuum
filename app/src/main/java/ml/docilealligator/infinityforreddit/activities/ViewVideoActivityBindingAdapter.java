@@ -10,7 +10,7 @@ import app.futured.hauler.HaulerView;
 import app.futured.hauler.LockableNestedScrollView;
 import com.google.android.material.bottomappbar.BottomAppBar;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.loadingindicator.LoadingIndicator;
+import com.google.android.material.progressindicator.CircularProgressIndicator;
 import java.util.Objects;
 import ml.docilealligator.infinityforreddit.R;
 import ml.docilealligator.infinityforreddit.databinding.ActivityViewVideoBinding;
@@ -79,7 +79,7 @@ public class ViewVideoActivityBindingAdapter {
         return binding == null ? Objects.requireNonNull(zoomableBinding).toolbarViewVideoActivity : binding.toolbarViewVideoActivity;
     }
 
-    public LoadingIndicator getLoadingIndicator() {
+    public CircularProgressIndicator getLoadingIndicator() {
         return binding == null ? Objects.requireNonNull(zoomableBinding).progressBarViewVideoActivity : binding.progressBarViewVideoActivity;
     }
 

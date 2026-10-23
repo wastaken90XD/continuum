@@ -7,7 +7,8 @@
     android:orientation="vertical"
     android:gravity="center">
 
-    <com.google.android.material.loadingindicator.LoadingIndicator
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:indeterminate="true"
         android:id="@+id/progress_bar_shadowbox_end_page_fragment"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

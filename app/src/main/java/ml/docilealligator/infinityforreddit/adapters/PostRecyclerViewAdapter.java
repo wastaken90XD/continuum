@@ -63,7 +63,7 @@ import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.Target;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.loadingindicator.LoadingIndicator;
+import com.google.android.material.progressindicator.CircularProgressIndicator;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.common.collect.ImmutableList;
 import com.libRG.CustomTextView;
@@ -5392,7 +5392,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
     class PostWithPreviewTypeViewHolder extends PostBaseViewHolder {
         TextView linkTextView;
         ImageView imageViewNoPreviewGallery;
-        LoadingIndicator loadingIndicator;
+        CircularProgressIndicator loadingIndicator;
         ImageView videoOrGifIndicator;
         TextView loadImageErrorTextView;
         @Nullable
@@ -5473,7 +5473,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                          MaterialButton shareButton,
                          TextView linkTextView,
                          ImageView imageViewNoPreviewGallery,
-                         LoadingIndicator loadingIndicator,
+                         CircularProgressIndicator loadingIndicator,
                          ImageView videoOrGifIndicator,
                          TextView loadImageErrorTextView,
                          @Nullable FrameLayout imageWrapperFrameLayout,
@@ -6101,7 +6101,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
         BadgedNameTextView usernameTextView;
         @Nullable TextView linkTextView;
         RelativeLayout relativeLayout;
-        LoadingIndicator loadingIndicator;
+        CircularProgressIndicator loadingIndicator;
         ImageView imageView;
         ImageView playButtonImageView;
         FrameLayout noPreviewPostImageFrameLayout;
@@ -6158,7 +6158,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                          @Nullable CustomTextView flairTextView,
                          @Nullable TextView linkTextView,
                          RelativeLayout relativeLayout,
-                         LoadingIndicator loadingIndicator,
+                         CircularProgressIndicator loadingIndicator,
                          ImageView imageView,
                          ImageView playButtonImageView,
                          FrameLayout noPreviewLinkImageFrameLayout,
