@@ -170,4 +170,21 @@
         app:fragment="ml.docilealligator.infinityforreddit.settings.CrashReportsFragment"
         app:bottom="true" />
 
+    <ml.docilealligator.infinityforreddit.customviews.preference.CustomFontPreferenceCategory
+        app:title="@string/settings_group_cookie_auth" />
+
+    <ml.docilealligator.infinityforreddit.customviews.preference.CustomFontPreferenceWithBackground
+        android:key="cookie_login"
+        app:icon="@drawable/ic_login_24dp"
+        app:title="@string/settings_cookie_login_title"
+        app:summary="@string/settings_cookie_login_summary"
+        app:top="true" />
+
+    <ml.docilealligator.infinityforreddit.customviews.preference.CustomFontPreferenceWithBackground
+        app:icon="@drawable/ic_search_day_night_24dp"
+        app:title="@string/settings_search_engine_settings_title"
+        app:summary="@string/settings_search_engine_settings_summary"
+        app:fragment="ml.docilealligator.infinityforreddit.settings.SearchEnginePreferenceFragment"
+        app:bottom="true" />
+
 </androidx.preference.PreferenceScreen>

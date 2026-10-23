@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.widget.Toast
+import androidx.core.os.ConfigurationCompat
 import androidx.fragment.app.FragmentManager
 import com.bumptech.glide.RequestBuilder
 import com.bumptech.glide.RequestManager
@@ -41,6 +42,7 @@ import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils
 import ml.docilealligator.infinityforreddit.utils.Utils
 import org.greenrobot.eventbus.EventBus
 import retrofit2.Retrofit
+import java.util.Locale
 import java.util.concurrent.Executor
 
 /**
@@ -97,7 +99,9 @@ class ShadowboxInfoPanel(
     private val markPostsAsReadAfterVoting = postHistorySharedPreferences.getBoolean(
         AccountScope.key(host.accountName, SharedPreferencesUtils.MARK_POSTS_AS_READ_AFTER_VOTING_BASE), false
     )
-    private val locale = host.resources.configuration.locales[0]
+    // Configuration#getLocales() (the "locales" property in Kotlin) requires API 24;
+    // ConfigurationCompat.getLocales() is the AndroidX equivalent that works down to minSdk 21.
+    private val locale = ConfigurationCompat.getLocales(host.resources.configuration)[0] ?: Locale.getDefault()
 
     private var post: Post? = null
     private var position = -1

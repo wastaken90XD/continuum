@@ -1,6 +1,8 @@
 package ml.docilealligator.infinityforreddit.settings;
 
 import android.annotation.SuppressLint;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
@@ -94,8 +96,39 @@ public class CrashReportsFragment extends Fragment {
             return true;
         } else if (item.getItemId() == R.id.action_export_logs_crash_reports_fragment) {
             return createGithubIssueWithLogs();
+        } else if (item.getItemId() == R.id.action_copy_logs_crash_reports_fragment) {
+            return copyAllLogsToClipboard();
         }
         return false;
+    }
+
+    /**
+     * Copies every stored crash report to the clipboard as one block of plain text, so it can be
+     * pasted anywhere (an issue, a chat, an email) without going through the GitHub-issue flow --
+     * which needs a browser and a GitHub account, and {@link #createGithubIssueWithLogs()} also
+     * truncates to 6800 characters to fit in a URL. This has no such limit.
+     */
+    private boolean copyAllLogsToClipboard() {
+        List<String> logLines = CrashyReporter.INSTANCE.getLogsAsStrings();
+        if (logLines == null || logLines.isEmpty()) {
+            Toast.makeText(mActivity, R.string.crash_reports_no_logs_found, Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        String rawLogs = String.join("\n", logLines);
+        ClipboardManager clipboard = (ClipboardManager) mActivity.getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard == null) {
+            Toast.makeText(mActivity, R.string.crash_reports_copy_failed, Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        clipboard.setPrimaryClip(ClipData.newPlainText("Crash reports", rawLogs));
+        // Android 13+ shows its own clipboard confirmation UI; a second one here would be
+        // redundant (the same guard the link-copy flow elsewhere in the app already uses).
+        if (Build.VERSION.SDK_INT < 33) {
+            Toast.makeText(mActivity, R.string.copy_success, Toast.LENGTH_SHORT).show();
+        }
+        return true;
     }
 
     /**
@@ -142,7 +175,7 @@ public class CrashReportsFragment extends Fragment {
     @SuppressLint("RestrictedApi")
     protected boolean applyMenuItemTheme(Menu menu) {
         if (mCustomThemeWrapper != null) {
-            int size = Math.min(menu.size(), 2);
+            int size = Math.min(menu.size(), 3);
             for (int i = 0; i < size; i++) {
                 MenuItem item = menu.getItem(i);
                 if (((MenuItemImpl) item).requestsActionButton()) {

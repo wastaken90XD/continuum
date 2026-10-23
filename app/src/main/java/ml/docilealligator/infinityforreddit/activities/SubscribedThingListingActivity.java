@@ -74,7 +74,7 @@ import ml.docilealligator.infinityforreddit.fragments.SubscribedSubredditsListin
 import ml.docilealligator.infinityforreddit.multireddit.DeleteMultiReddit;
 import ml.docilealligator.infinityforreddit.multireddit.FetchMyMultiReddits;
 import ml.docilealligator.infinityforreddit.multireddit.MultiReddit;
-import ml.docilealligator.infinityforreddit.network.AnyAccountAccessTokenAuthenticator;
+import ml.docilealligator.infinityforreddit.cookieauth.RedditCookieInterceptor;
 import ml.docilealligator.infinityforreddit.resume.Restorable;
 import ml.docilealligator.infinityforreddit.resume.ResumeLaunchExtras;
 import ml.docilealligator.infinityforreddit.subreddit.ParseSubredditData;
@@ -235,7 +235,9 @@ public class SubscribedThingListingActivity extends BaseActivity
                 accountName = specifiedAccount.getAccountName();
                 mAccountProfileImageUrl = specifiedAccount.getProfileImageUrl();
 
-                mOauthRetrofit = mOauthRetrofit.newBuilder().client(new OkHttpClient.Builder().authenticator(new AnyAccountAccessTokenAuthenticator(APIUtils.getClientId(getApplicationContext()), mRetrofit, mRedditDataRoomDatabase, specifiedAccount, mCurrentAccountSharedPreferences))
+                // Pins this request to specifiedAccount's own cookie regardless of which account
+                // is current -- viewing/managing subscriptions as a specific account.
+                mOauthRetrofit = mOauthRetrofit.newBuilder().client(new OkHttpClient.Builder().addInterceptor(new RedditCookieInterceptor(specifiedAccount.getAccessToken()))
                                 .connectTimeout(30, TimeUnit.SECONDS)
                                 .readTimeout(30, TimeUnit.SECONDS)
                                 .writeTimeout(30, TimeUnit.SECONDS)

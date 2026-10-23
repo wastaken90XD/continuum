@@ -47,7 +47,7 @@ import ml.docilealligator.infinityforreddit.events.SubmitPollPostEvent;
 import ml.docilealligator.infinityforreddit.events.SubmitTextOrLinkPostEvent;
 import ml.docilealligator.infinityforreddit.events.SubmitVideoOrGifPostEvent;
 import ml.docilealligator.infinityforreddit.markdown.RichTextJSONConverter;
-import ml.docilealligator.infinityforreddit.network.AnyAccountAccessTokenAuthenticator;
+import ml.docilealligator.infinityforreddit.cookieauth.RedditCookieInterceptor;
 import ml.docilealligator.infinityforreddit.post.Post;
 import ml.docilealligator.infinityforreddit.post.SubmitPost;
 import ml.docilealligator.infinityforreddit.subreddit.Flair;
@@ -197,7 +197,9 @@ public class SubmitPostService extends JobService {
 
             Retrofit newAuthenticatorOauthRetrofit = mOauthRetrofit.newBuilder()
                 .client(new OkHttpClient.Builder()
-                    .authenticator(new AnyAccountAccessTokenAuthenticator(APIUtils.getClientId(getApplicationContext()), mRetrofit, mRedditDataRoomDatabase, account, mCurrentAccountSharedPreferences))
+                    // Pins this request to `account`'s own cookie regardless of which account is
+                    // current -- submitting as a specific account in a multi-account flow.
+                    .addInterceptor(new RedditCookieInterceptor(account.getAccessToken()))
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(30, TimeUnit.SECONDS)
                     .writeTimeout(30, TimeUnit.SECONDS)

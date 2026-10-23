@@ -21,6 +21,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.OnApplyWindowInsetsListener;
 import androidx.core.view.ViewCompat;
@@ -565,7 +566,9 @@ public class SearchActivity extends BaseActivity {
 
         // The IME reads EditorInfo once, when the input connection is created, so it has to be told
         // to pick up the new flag.
-        InputMethodManager inputMethodManager = getSystemService(InputMethodManager.class);
+        // getSystemService(Class<T>) requires API 23; ContextCompat.getSystemService() is the
+        // AndroidX equivalent that works down to minSdk 21 (used the same way in MainActivity).
+        InputMethodManager inputMethodManager = ContextCompat.getSystemService(this, InputMethodManager.class);
         if (inputMethodManager != null) {
             inputMethodManager.restartInput(binding.searchEditTextSearchActivity);
         }

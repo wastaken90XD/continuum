@@ -8,6 +8,7 @@ import static com.google.android.material.appbar.AppBarLayout.LayoutParams.SCROL
 import static com.google.android.material.appbar.AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL;
 
 import android.annotation.SuppressLint;
+import android.app.KeyguardManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -39,8 +40,11 @@ import android.widget.FrameLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.appcompat.view.menu.MenuItemImpl;
@@ -112,6 +116,37 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomFo
     private boolean immersiveInterface;
     private boolean changeStatusBarIconColor;
     private boolean hasDrawerLayout = false;
+
+    /**
+     * Platform-only (no androidx.biometric dependency) replacement for a fingerprint/biometric
+     * prompt: confirms whatever device credential (PIN, pattern, or password) is enrolled via
+     * {@link KeyguardManager#createConfirmDeviceCredentialIntent}, available since API 21. Most
+     * OEM keyguards also offer a fingerprint/face shortcut within that same system screen when
+     * the device supports it, so this is not a pure regression to PIN-only entry on devices that
+     * have biometrics enrolled -- it just isn't a direct, in-app biometric prompt.
+     *
+     * Must be registered unconditionally during the activity's initialization (a field
+     * initializer runs before onCreate, which is what registerForActivityResult requires), not
+     * lazily inside {@link #confirmDeviceCredential}, or androidx.activity throws.
+     */
+    @Nullable
+    private Runnable pendingDeviceCredentialSuccess;
+    @Nullable
+    private Runnable pendingDeviceCredentialFailure;
+    private final ActivityResultLauncher<Intent> deviceCredentialLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                Runnable onSuccess = pendingDeviceCredentialSuccess;
+                Runnable onFailure = pendingDeviceCredentialFailure;
+                pendingDeviceCredentialSuccess = null;
+                pendingDeviceCredentialFailure = null;
+                if (result.getResultCode() == RESULT_OK) {
+                    if (onSuccess != null) {
+                        onSuccess.run();
+                    }
+                } else if (onFailure != null) {
+                    onFailure.run();
+                }
+            });
     private boolean isImmersiveInterfaceApplicable = true;
     @SuppressWarnings("NullAway.Init")
     private View navBarScrim;
@@ -660,6 +695,11 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomFo
 
     // The requested rate does not take effect until the window has been laid out and the display
     // scheduler has switched, so we read the actual active rate again a short time after create.
+    // Display#getMode() requires API 23; this is only called from applyPreferredRefreshRate(),
+    // which already returns early on SDK_INT < M, but lint can't follow that guard through a
+    // private helper method (and especially not through the postDelayed lambda below), so the
+    // requirement is declared explicitly here.
+    @RequiresApi(Build.VERSION_CODES.M)
     private void logEffectiveRefreshRateAfterSettle(Window window, Display display) {
         window.getDecorView().postDelayed(() -> {
             float effective = display.getMode().getRefreshRate();
@@ -1050,5 +1090,40 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomFo
 
     public void setShouldTrackFullscreenMediaPeekTouchEvent(boolean value) {
         shouldTrackFullscreenMediaPeekTouchEvent = value;
+    }
+
+    /**
+     * Whether this device has a PIN, pattern, or password enrolled, i.e. whether
+     * {@link #confirmDeviceCredential} is able to do anything. Callers that used to gate on
+     * {@code BiometricManager.canAuthenticate(...) == BIOMETRIC_SUCCESS} should gate on this
+     * instead.
+     */
+    public boolean isDeviceCredentialAvailable() {
+        KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        return keyguardManager != null && keyguardManager.isKeyguardSecure();
+    }
+
+    /**
+     * Platform replacement for a {@code BiometricPrompt} authentication prompt (see
+     * {@link #deviceCredentialLauncher}'s javadoc). No-ops if {@link #isDeviceCredentialAvailable()}
+     * is false -- callers should check that first and skip straight to the protected action
+     * instead of calling this.
+     *
+     * @param onSuccess invoked if the user confirms their credential
+     * @param onFailure invoked for any other outcome, including the user cancelling; may be null
+     */
+    public void confirmDeviceCredential(CharSequence title, @Nullable CharSequence description,
+                                         Runnable onSuccess, @Nullable Runnable onFailure) {
+        KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        if (keyguardManager == null || !keyguardManager.isKeyguardSecure()) {
+            return;
+        }
+        Intent intent = keyguardManager.createConfirmDeviceCredentialIntent(title, description);
+        if (intent == null) {
+            return;
+        }
+        pendingDeviceCredentialSuccess = onSuccess;
+        pendingDeviceCredentialFailure = onFailure;
+        deviceCredentialLauncher.launch(intent);
     }
 }

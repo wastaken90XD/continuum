@@ -10,7 +10,7 @@ import androidx.paging.LoadState;
 import androidx.paging.LoadStateAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.loadingindicator.LoadingIndicator;
+import com.google.android.material.progressindicator.CircularProgressIndicator;
 import ml.docilealligator.infinityforreddit.R;
 import ml.docilealligator.infinityforreddit.activities.BaseActivity;
 import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
@@ -40,7 +40,7 @@ public class Paging3LoadingStateAdapter extends LoadStateAdapter<Paging3LoadingS
     }
 
     class LoadStateViewHolder extends RecyclerView.ViewHolder {
-        private final LoadingIndicator mLoadingIndicator;
+        private final CircularProgressIndicator mLoadingIndicator;
         private final RelativeLayout mErrorView;
         private final TextView mErrorMsg;
         private final MaterialButton mRetry;

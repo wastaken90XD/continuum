@@ -2,10 +2,11 @@ package ml.docilealligator.infinityforreddit.settings;
 
 import android.content.Context;
 import android.content.res.XmlResourceParser;
-import android.os.LocaleList;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.core.os.ConfigurationCompat;
+import androidx.core.os.LocaleListCompat;
 import androidx.fragment.app.Fragment;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -127,8 +128,15 @@ public class SettingsSearchRegistry {
     }
 
     private static Locale localeOf(Context ctx) {
-        LocaleList locales = ctx.getResources().getConfiguration().getLocales();
-        return locales.isEmpty() ? Locale.getDefault() : locales.get(0);
+        // Configuration#getLocales() (returning the platform LocaleList) requires API 24;
+        // ConfigurationCompat.getLocales() is the AndroidX equivalent that falls back to the
+        // deprecated single Configuration#locale field below API 24, working down to minSdk 21.
+        LocaleListCompat locales = ConfigurationCompat.getLocales(ctx.getResources().getConfiguration());
+        // get(int) is annotated @Nullable (it can return null for an out-of-range index), even
+        // though index 0 of a list already confirmed non-empty always has an element -- so this
+        // null check is for NullAway's static analysis, not a case that can happen at runtime.
+        Locale locale = locales.isEmpty() ? null : locales.get(0);
+        return locale != null ? locale : Locale.getDefault();
     }
 
     /**

@@ -258,7 +258,8 @@
 
             </FrameLayout>
 
-            <com.google.android.material.loadingindicator.LoadingIndicator
+            <com.google.android.material.progressindicator.CircularProgressIndicator
+                android:indeterminate="true"
                 android:id="@+id/progress_bar_item_post_compact_right_thumbnail"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
