@@ -1,7 +1,9 @@
 package ml.docilealligator.infinityforreddit.cookieauth;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import java.util.concurrent.TimeUnit;
+import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 import okhttp3.OkHttpClient;
 import retrofit2.Retrofit;
 import retrofit2.converter.scalars.ScalarsConverterFactory;
@@ -44,8 +46,12 @@ public final class CookieRetrofitClient {
     }
 
     private static Retrofit build(Context context) {
+        // Same current-account-scoped prefs file NetworkModule's @Named("current_account")
+        // provides -- this standalone client has no Dagger injection point of its own.
+        SharedPreferences currentAccountSharedPreferences = context.getApplicationContext()
+                .getSharedPreferences(SharedPreferencesUtils.CURRENT_ACCOUNT_SHARED_PREFERENCES_FILE, Context.MODE_PRIVATE);
         OkHttpClient client = new OkHttpClient.Builder()
-                .addInterceptor(new RedditCookieInterceptor(context))
+                .addInterceptor(new RedditCookieInterceptor(context, currentAccountSharedPreferences))
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)

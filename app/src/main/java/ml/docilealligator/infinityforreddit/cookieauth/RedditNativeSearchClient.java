@@ -1,6 +1,7 @@
 package ml.docilealligator.infinityforreddit.cookieauth;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import androidx.annotation.Nullable;
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -10,6 +11,7 @@ import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -34,8 +36,12 @@ public class RedditNativeSearchClient implements SearchBackend {
                 ? "r/" + subreddit + "/search.json?q=" + urlEncode(query) + "&restrict_sr=1"
                 : "search.json?q=" + urlEncode(query);
 
+        // Same current-account-scoped prefs file NetworkModule's @Named("current_account")
+        // provides -- this standalone client has no Dagger injection point of its own.
+        SharedPreferences currentAccountSharedPreferences = context.getApplicationContext()
+                .getSharedPreferences(SharedPreferencesUtils.CURRENT_ACCOUNT_SHARED_PREFERENCES_FILE, Context.MODE_PRIVATE);
         OkHttpClient client = CLIENT.newBuilder()
-                .addInterceptor(new RedditCookieInterceptor(context))
+                .addInterceptor(new RedditCookieInterceptor(context, currentAccountSharedPreferences))
                 .build();
 
         Request request = new Request.Builder().url("https://www.reddit.com/" + path).build();
