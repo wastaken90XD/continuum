@@ -15,6 +15,7 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,7 @@ import ml.docilealligator.infinityforreddit.events.NewUserLoggedInEvent;
 import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 import okhttp3.OkHttpClient;
 import org.greenrobot.eventbus.EventBus;
+import org.json.JSONObject;
 import retrofit2.Retrofit;
 
 /**
@@ -52,11 +54,18 @@ import retrofit2.Retrofit;
  * <p>Reddit's modern reddit.com login page is a client-rendered single-page app: once the user
  * authenticates, it typically updates in place via {@code history.pushState} rather than a full
  * page navigation, so {@link WebViewClient#onPageFinished} alone is not a reliable signal that
- * login finished. This polls the cookie jar on a short timer in addition to watching page loads,
- * and accepts either {@code token_v2} (the short-lived bearer-style session cookie, ~24h) or
- * {@code reddit_session} (the longer-lived one, ~180 days, not always minted on every login) as
- * proof of a real session -- {@code loid} alone is just an anonymous visitor id present even when
- * logged out.
+ * login finished. This polls the cookie jar on a short timer in addition to watching page loads.
+ *
+ * <p>Telling "logged in" from "not logged in yet" from cookies alone is subtler than just
+ * checking which cookies exist: {@code token_v2} (a JWT) is set from the very first page load,
+ * logged in or not -- Reddit mints one for anonymous visitors too, with its {@code sub} claim set
+ * to {@code "loid"} (the anonymous visitor id) instead of {@code "user"}. Treating its mere
+ * presence as "logged in" (an earlier version of this check did) fires {@link FetchMyInfo} against
+ * an anonymous session the instant the login page loads, which always fails and surfaces a
+ * confusing "cannot fetch user info" error before the user has even typed anything. So this reads
+ * the token's payload and only proceeds once {@code sub} says {@code "user"} -- or, as a fallback
+ * signal, once a {@code reddit_session} cookie shows up, which (unlike token_v2) is never minted
+ * for a purely anonymous visit.
  *
  * <p>This is the one piece of the cookie-auth path that unavoidably impersonates a browser rather
  * than using Reddit's API: there is no official API for interactively signing a user in and
@@ -68,6 +77,8 @@ public class CookieLoginActivity extends BaseActivity {
     public static final int REQUEST_CODE = 9041;
     private static final String LOGIN_URL = "https://www.reddit.com/login";
     private static final long COOKIE_POLL_INTERVAL_MS = 750L;
+    /** Don't retry the exact same (failed) cookie more often than this -- avoids toast spam. */
+    private static final long FAILED_COOKIE_RETRY_COOLDOWN_MS = 5000L;
 
     @Inject
     @Named("oauth")
@@ -90,6 +101,9 @@ public class CookieLoginActivity extends BaseActivity {
     private Runnable pollRunnable;
     private boolean finished;
     private boolean fetchingAccountInfo;
+    @Nullable
+    private String lastFailedCookie;
+    private long lastFailedAtElapsedMs;
 
     public static Intent createIntent(Context context) {
         return new Intent(context, CookieLoginActivity.class);
@@ -196,9 +210,16 @@ public class CookieLoginActivity extends BaseActivity {
         }
 
         String cookie = CookieManager.getInstance().getCookie("https://www.reddit.com");
-        if (cookie == null || !(cookie.contains("token_v2=") || cookie.contains("reddit_session="))) {
-            // loid (anonymous visitor id) is set from the very first page load and proves
-            // nothing -- only a real session cookie means the user actually signed in.
+        if (cookie == null || !looksLikeRealSession(cookie)) {
+            return;
+        }
+
+        if (cookie.equals(lastFailedCookie)
+                && android.os.SystemClock.elapsedRealtime() - lastFailedAtElapsedMs < FAILED_COOKIE_RETRY_COOLDOWN_MS) {
+            // This exact cookie already failed a fetch moments ago and nothing has changed --
+            // retrying it immediately would just fail again and spam the same error toast every
+            // poll tick. Wait it out; the next poll after the cooldown (or a cookie change,
+            // whichever comes first) will try again.
             return;
         }
 
@@ -251,17 +272,73 @@ public class CookieLoginActivity extends BaseActivity {
                     @Override
                     public void onFetchMyInfoFailed(boolean parseFailed) {
                         fetchingAccountInfo = false;
+                        lastFailedCookie = cookie;
+                        lastFailedAtElapsedMs = android.os.SystemClock.elapsedRealtime();
                         Toast.makeText(getApplicationContext(),
                                 parseFailed ? R.string.parse_user_info_error : R.string.cannot_fetch_user_info,
                                 Toast.LENGTH_SHORT).show();
                         // The cookie we grabbed didn't actually work (e.g. captured mid-redirect,
                         // before Reddit finished minting the session) -- go back to polling instead
-                        // of leaving the user stuck with no path forward.
+                        // of leaving the user stuck with no path forward. checkForSessionCookie's
+                        // cooldown check keeps this from immediately refiring on the same cookie.
                         if (pollHandler != null && pollRunnable != null) {
                             pollHandler.postDelayed(pollRunnable, COOKIE_POLL_INTERVAL_MS);
                         }
                     }
                 });
+    }
+
+    /**
+     * Whether {@code cookieHeader} (the full {@code "name1=value1; name2=value2; ..."} string from
+     * the cookie jar) shows real, logged-in evidence rather than just an anonymous visit.
+     */
+    private boolean looksLikeRealSession(String cookieHeader) {
+        if (cookieHeader.contains("reddit_session=")) {
+            // Never minted for a purely anonymous visit, unlike token_v2 -- sufficient on its own.
+            return true;
+        }
+        String tokenV2 = extractCookieValue(cookieHeader, "token_v2");
+        return tokenV2 != null && !isAnonymousJwt(tokenV2);
+    }
+
+    @Nullable
+    private static String extractCookieValue(String cookieHeader, String name) {
+        String prefix = name + "=";
+        for (String part : cookieHeader.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.startsWith(prefix)) {
+                return trimmed.substring(prefix.length());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Reddit's {@code token_v2} cookie is a JWT with a {@code sub} claim of either {@code "loid"}
+     * (anonymous visitor id -- minted even when logged out) or {@code "user"} (a real signed-in
+     * session). If the token can't be decoded at all, errs toward "not confirmed yet" (false isn't
+     * returned here) rather than treating an unreadable token as proof of login.
+     */
+    private static boolean isAnonymousJwt(String jwt) {
+        try {
+            String[] parts = jwt.split("\\.");
+            if (parts.length < 2) {
+                return true;
+            }
+            String payload = parts[1];
+            int remainder = payload.length() % 4;
+            if (remainder != 0) {
+                payload = payload + "====".substring(remainder);
+            }
+            byte[] decoded = android.util.Base64.decode(payload,
+                    android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP);
+            JSONObject json = new JSONObject(new String(decoded, StandardCharsets.UTF_8));
+            return "loid".equals(json.optString("sub", "loid"));
+        } catch (Exception e) {
+            // Unreadable/unexpected token shape -- treat as anonymous (i.e. keep waiting) rather
+            // than risk firing FetchMyInfo against a session that was never actually established.
+            return true;
+        }
     }
 
     private void finishSuccessfully() {
