@@ -2,7 +2,6 @@ package ml.docilealligator.infinityforreddit.webclient;
 
 import android.annotation.SuppressLint;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
@@ -10,19 +9,17 @@ import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import androidx.activity.OnBackPressedCallback;
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-import androidx.core.view.OneShotPreDrawListener;
+import androidx.core.splashscreen.SplashScreen;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.io.BufferedReader;
@@ -31,66 +28,51 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
-import javax.inject.Inject;
-import javax.inject.Named;
-import ml.docilealligator.infinityforreddit.Infinity;
 import ml.docilealligator.infinityforreddit.R;
-import ml.docilealligator.infinityforreddit.activities.BaseActivity;
-import ml.docilealligator.infinityforreddit.activities.MainActivity;
-import ml.docilealligator.infinityforreddit.cookieauth.CookieAuthConstants;
-import ml.docilealligator.infinityforreddit.cookieauth.CookieLoginActivity;
-import ml.docilealligator.infinityforreddit.cookieauth.CookieSessionUtils;
-import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
 
 /**
- * Continuum's main screen (the Continuum Technical Specification Document pivot, "full_replace"
- * option): a WebView showing the real reddit.com, rather than a native client built on
- * {@code RedditAPI}. The native screens ({@link MainActivity} and everything under it) are left in
- * place, unchanged and still fully functional, but are no longer the app's primary entry point --
- * reachable only from this screen's "Classic view" menu item while this pivot is being proven out.
+ * Continuum, standalone: the entire app is this one screen -- a WebView showing the real desktop
+ * reddit.com. There is no separate native UI, account/database layer, or dependency-injection
+ * graph anymore; the browser's own cookie jar (persisted automatically by {@link CookieManager})
+ * is the one and only source of truth for whether the user is logged in, exactly like using Chrome
+ * or any other browser. Signing in happens through Reddit's own website UI, inside this same
+ * WebView -- there is no separate login screen to build or keep in sync.
  *
- * <p>Uses {@link CookieAuthConstants#DESKTOP_CHROME_USER_AGENT}, not the mobile UA shared by
- * login and every other cookie-session consumer -- see that constant's javadoc. The first version
- * of this screen tried to get the desktop layout from viewport width alone, on the theory that
- * Reddit's frontend was purely responsive; confirmed on a real device that it is not. Reddit
- * decides mobile vs. desktop template server-side from the User-Agent, so a real desktop UA is
- * required, and the wide-viewport forcing below is now a belt-and-suspenders fallback rather than
- * the actual mechanism.
+ * <p>Uses {@link #DESKTOP_USER_AGENT}, not a mobile one: Reddit decides mobile vs. desktop layout
+ * server-side from the request's User-Agent, not from viewport width -- confirmed by trying the
+ * viewport-only approach first and finding Reddit kept serving its mobile shell regardless. The
+ * viewport-forcing script below is kept as a harmless fallback, not the real mechanism.
  *
  * <p>The media-download feature ({@code reddit_web_enhancements.js} + {@link RedditDownloadBridge})
  * is adapted from the public "Zero Trust" design pattern used by open-source Reddit media
  * downloader userscripts (trusted-CDN allowlist, HTTPS-only, sanitized filenames) -- reimplemented
- * here against a native Android bridge rather than copied, since the reference scripts rely on
- * Tampermonkey-only APIs (GM_download) that don't exist in a plain WebView, and since running
- * actual third-party script verbatim inside a WebView holding the user's live session would be a
- * real way to leak or hijack it.
+ * against a native Android bridge rather than copied, since those scripts rely on Tampermonkey-only
+ * APIs that don't exist in a plain WebView, and running actual third-party script against this
+ * WebView's live session would be a real way to leak or hijack it.
  *
- * <p>Known v1 limitation: v.redd.it serves video and audio as separate streams with no combined
- * file exposed anywhere. This ships video-only downloads (no audio) rather than a muxed file,
- * since real audio/video muxing (Android's MediaMuxer, or an in-WebView ffmpeg.wasm like some
- * reference scripts use) needs on-device verification this sandbox cannot do, and a silently
- * broken "muxed" file would be worse than an honestly-labeled video-only one.
+ * <p>Known limitation: v.redd.it serves video and audio as separate streams with no combined file
+ * exposed anywhere, so downloaded videos have no audio track. Real muxing (Android's MediaMuxer, or
+ * an in-WebView ffmpeg.wasm as some reference scripts use) needs on-device verification that could
+ * not be done in the environment this was built in.
  *
- * <p>The WebView's actual rendering surface is capped below 720p regardless of the device's real
- * screen size -- see {@link #capWebViewRenderResolution} -- trading rendering sharpness for
- * compositing/GPU cost, on the assumption that a desktop-width page rendered inside a mobile
- * WebView is heavier to keep smooth than the same screen's native UI ever was.
+ * <p>Does <b>not</b> attempt to cap the WebView's render resolution below the device's native one.
+ * An earlier version tried this (shrinking the WebView's own layout bounds, then stretching the
+ * smaller surface back up with a scale transform) and it caused a "slingshot" scrolling glitch --
+ * almost certainly some part of Android's or Chromium's touch/fling handling using raw,
+ * untransformed screen coordinates for a threshold or velocity calculation where the rest of the
+ * pipeline correctly uses the view's transformed local coordinates, which only applies when a
+ * scale transform is in the mix. Reverted rather than patched, since there was no way to verify a
+ * fix for it without a real device.
  */
-public class RedditWebActivity extends BaseActivity {
+public class RedditWebActivity extends AppCompatActivity {
     private static final String TAG = "RedditWebActivity";
     private static final String REDDIT_HOME_URL = "https://www.reddit.com/";
+    private static final String DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
     /**
-     * Render-resolution cap (see {@link #capWebViewRenderResolution}): the WebView's own actual
-     * pixel bounds, i.e. what the browser engine rasterizes into, are kept at or under this on its
-     * short side -- comfortably under 720p's 720, not just technically under it.
-     */
-    private static final int MAX_RENDER_SHORT_SIDE_PX = 700;
-    /** Same idea as {@link #MAX_RENDER_SHORT_SIDE_PX}, for the long side (720p's 1280, same ratio). */
-    private static final int MAX_RENDER_LONG_SIDE_PX = 1245;
-    /**
-     * Belt-and-suspenders fallback alongside {@link CookieAuthConstants#DESKTOP_CHROME_USER_AGENT}
-     * -- a wide virtual viewport, in case any Reddit-served page still reacts to viewport width
-     * (e.g. a sub-page that isn't fully template-switched). See class javadoc.
+     * Belt-and-suspenders fallback alongside {@link #DESKTOP_USER_AGENT} -- a wide virtual
+     * viewport, in case any Reddit-served page still reacts to viewport width.
      */
     private static final String FORCE_DESKTOP_VIEWPORT_JS =
             "(function(){"
@@ -106,74 +88,36 @@ public class RedditWebActivity extends BaseActivity {
                     + "{childList:true,subtree:false});"
                     + "})()";
 
-    @Inject
-    @Named("current_account")
-    SharedPreferences mCurrentAccountSharedPreferences;
-    @Inject
-    @Named("default")
-    SharedPreferences mSharedPreferences;
-    @Inject
-    CustomThemeWrapper mCustomThemeWrapper;
-
     private WebView webView;
     @Nullable
     private ProgressBar progressBar;
     @Nullable
     private String pendingEnhancementsScript;
 
-    private final ActivityResultLauncher<Intent> loginLauncher = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(), result -> {
-                // Whatever the outcome, re-sync whatever cookie now exists and reload -- a
-                // cancelled login still leaves the user wherever they were in the WebView itself.
-                syncStoredCookieIntoWebView();
-                if (webView != null) {
-                    webView.reload();
-                }
-            });
-
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
-        // Mirrors MainActivity: this screen now carries AppTheme.Launcher (the manifest's
-        // launcher theme, including the API31+ Theme.SplashScreen parent), so it needs the same
-        // compat call to get a normal splash/exit transition instead of whatever the OS does by
-        // default when a Theme.SplashScreen-derived theme's owning activity never calls this.
-        androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
-
-        ((Infinity) getApplication()).getAppComponent().inject(this);
-
-        setImmersiveModeNotApplicableBelowAndroid16();
+        SplashScreen.installSplashScreen(this);
 
         super.onCreate(savedInstanceState);
-
         setContentView(R.layout.activity_reddit_web);
 
         Toolbar toolbar = findViewById(R.id.toolbar_reddit_web_activity);
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle(R.string.reddit_web_activity_label);
+            getSupportActionBar().setTitle(R.string.app_name);
         }
 
         progressBar = findViewById(R.id.progress_bar_reddit_web_activity);
         webView = findViewById(R.id.web_view_reddit_web_activity);
-        View webViewContainer = findViewById(R.id.web_view_container_reddit_web_activity);
-
-        applyCustomTheme();
-
-        // One-shot: the container's bounds are only needed once (what the WebView should visually
-        // fill), and this activity isn't declared to handle orientation changes itself, so a
-        // rotation recreates it and runs this again from scratch rather than needing a listener
-        // that keeps re-measuring.
-        OneShotPreDrawListener.add(webViewContainer, () -> capWebViewRenderResolution(webViewContainer));
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         cookieManager.setAcceptThirdPartyCookies(webView, true);
-        syncStoredCookieIntoWebView();
 
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
-        webView.getSettings().setUserAgentString(CookieAuthConstants.DESKTOP_CHROME_USER_AGENT);
+        webView.getSettings().setUserAgentString(DESKTOP_USER_AGENT);
         webView.getSettings().setUseWideViewPort(true);
         webView.getSettings().setLoadWithOverviewMode(true);
         webView.getSettings().setSupportZoom(true);
@@ -257,106 +201,21 @@ public class RedditWebActivity extends BaseActivity {
         });
     }
 
-    /**
-     * Seeds the WebView's cookie jar from the one-time snapshot {@link CookieLoginActivity}
-     * captured at login, but only as a fallback for when that jar doesn't already have a real
-     * session -- not unconditionally on every call.
-     *
-     * <p>Android's {@link CookieManager} already persists its own cookie jar to disk and reloads
-     * it automatically on process start; it is the same process-wide singleton this WebView and
-     * {@link CookieLoginActivity}'s WebView both use, so a login made minutes or weeks ago is
-     * already sitting in it with no copying needed at all. Reddit also actively rotates session
-     * cookies during ordinary browsing (a refreshed {@code token_v2}, a new {@code
-     * reddit_session}, ...), landing those updates in that same live jar via ordinary
-     * {@code Set-Cookie} response headers.
-     *
-     * <p>Calling this unconditionally on every cold start -- which an earlier version of this
-     * method did -- fights that: it reapplies the one string captured at login over whatever the
-     * live jar has since rotated to, silently downgrading the session back to its login-time
-     * state every time the app restarts. Only recovering from the snapshot when the live jar has
-     * nothing usable at all (a fresh install's first cold start right after login, or the WebView
-     * data having been cleared independently of the app, e.g. via Android's per-app storage
-     * settings) keeps this a recovery path instead of a standing bug.
-     */
-    private void syncStoredCookieIntoWebView() {
-        CookieManager cookieManager = CookieManager.getInstance();
-        String liveCookie = cookieManager.getCookie("https://www.reddit.com");
-        if (CookieSessionUtils.looksLikeRealSession(liveCookie)) {
-            return;
-        }
-
-        SharedPreferences prefs = getSharedPreferences(
-                CookieAuthConstants.COOKIE_PREFS_NAME, MODE_PRIVATE);
-        String cookie = prefs.getString(CookieAuthConstants.COOKIE_PREFS_KEY, null);
-        if (cookie == null || cookie.isEmpty()) {
-            return;
-        }
-        for (String part : cookie.split(";")) {
-            String trimmed = part.trim();
-            if (!trimmed.isEmpty()) {
-                cookieManager.setCookie("https://www.reddit.com", trimmed);
-            }
-        }
-        cookieManager.flush();
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // CookieManager persists in the background on its own, but an explicit flush here means
+        // whatever Reddit has rotated the session cookies to is actually on disk before the
+        // process risks being killed in the background.
+        CookieManager.getInstance().flush();
     }
 
-
-    /**
-     * Keeps the WebView's actual rendering surface at or under 720p, regardless of how large the
-     * screen it's shown on actually is.
-     *
-     * <p>Does this the way a low-power video player downscales decode resolution and lets the
-     * display upscale it, rather than anything WebView-specific: shrink the View's own layout
-     * bounds (which is what the browser engine's compositor actually rasterizes into) to a smaller
-     * pixel size, then stretch that smaller surface back up with a plain {@link View#setScaleX}/
-     * {@link View#setScaleY} transform so it still visually fills {@code container}. Touch input
-     * still lands correctly -- Android's hit-testing and motion-event coordinate mapping already
-     * account for a view's scale transform, the same as it does for pinch-zoom or any other
-     * transformed view -- so this costs rendering sharpness (a 1280-CSS-px-wide desktop layout
-     * downsampled this way will look softer, especially on a high-density display), not
-     * interactivity, in exchange for rendering and compositing a meaningfully smaller number of
-     * pixels on every frame.
-     *
-     * <p>Composes with the desktop-layout viewport forcing in {@link #FORCE_DESKTOP_VIEWPORT_JS}
-     * rather than fighting it: that script tells the page to lay itself out assuming 1280 CSS
-     * pixels of width regardless of the device, and the browser engine already has to scale that
-     * layout to fit whatever space it is actually given -- shrinking the space it is given just
-     * means that scaling-to-fit happens against a smaller raster target.
-     *
-     * <p>A no-op if {@code container} is already at or under the cap (e.g. a small/low-res
-     * device), so this never *upscales* anything.
-     */
-    private void capWebViewRenderResolution(@NonNull View container) {
-        int actualWidth = container.getWidth();
-        int actualHeight = container.getHeight();
-        if (actualWidth <= 0 || actualHeight <= 0 || webView == null) {
-            return;
+    @Override
+    protected void onDestroy() {
+        if (webView != null) {
+            webView.destroy();
         }
-
-        boolean widerThanTall = actualWidth >= actualHeight;
-        int capWidth = widerThanTall ? MAX_RENDER_LONG_SIDE_PX : MAX_RENDER_SHORT_SIDE_PX;
-        int capHeight = widerThanTall ? MAX_RENDER_SHORT_SIDE_PX : MAX_RENDER_LONG_SIDE_PX;
-
-        float scale = Math.min(1f, Math.min((float) capWidth / actualWidth, (float) capHeight / actualHeight));
-        if (scale >= 1f) {
-            return;
-        }
-
-        int renderWidth = Math.max(1, Math.round(actualWidth * scale));
-        int renderHeight = Math.max(1, Math.round(actualHeight * scale));
-
-        ViewGroup.LayoutParams params = webView.getLayoutParams();
-        params.width = renderWidth;
-        params.height = renderHeight;
-        webView.setLayoutParams(params);
-
-        webView.setPivotX(0f);
-        webView.setPivotY(0f);
-        webView.setScaleX((float) actualWidth / renderWidth);
-        webView.setScaleY((float) actualHeight / renderHeight);
-
-        Log.d(TAG, "Capped WebView render surface to " + renderWidth + "x" + renderHeight
-                + " (visually filling " + actualWidth + "x" + actualHeight + ")");
+        super.onDestroy();
     }
 
     @Nullable
@@ -378,72 +237,15 @@ public class RedditWebActivity extends BaseActivity {
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.reddit_web_activity, menu);
-        applyMenuItemTheme(menu);
         return true;
     }
 
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        int id = item.getItemId();
-        if (id == R.id.action_login_reddit_web_activity) {
-            loginLauncher.launch(CookieLoginActivity.createIntent(this));
-            return true;
-        } else if (id == R.id.action_refresh_reddit_web_activity) {
+        if (item.getItemId() == R.id.action_refresh_reddit_web_activity) {
             webView.reload();
-            return true;
-        } else if (id == R.id.action_classic_view_reddit_web_activity) {
-            startActivity(new Intent(this, MainActivity.class));
             return true;
         }
         return super.onOptionsItemSelected(item);
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        // Belt-and-suspenders: CookieManager persists in the background on its own, but an
-        // explicit flush here means whatever Reddit has rotated the session cookies to is
-        // actually on disk before the process risks being killed in the background.
-        CookieManager.getInstance().flush();
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (webView != null) {
-            webView.destroy();
-        }
-        super.onDestroy();
-    }
-
-    @Override
-    public SharedPreferences getDefaultSharedPreferences() {
-        return mSharedPreferences;
-    }
-
-    @Override
-    public SharedPreferences getCurrentAccountSharedPreferences() {
-        return mCurrentAccountSharedPreferences;
-    }
-
-    @Override
-    public CustomThemeWrapper getCustomThemeWrapper() {
-        return mCustomThemeWrapper;
-    }
-
-    @Override
-    protected void applyCustomTheme() {
-        if (webView != null) {
-            webView.setBackgroundColor(mCustomThemeWrapper.getBackgroundColor());
-        }
-    }
-
-    @Override
-    public void saveResumeState(@NonNull Bundle out) {
-        // The WebView keeps its own navigation history; nothing extra to snapshot here.
-    }
-
-    @Override
-    public void restoreResumeState(@NonNull Bundle state) {
-        // Nothing saved above, so nothing to restore.
     }
 }
