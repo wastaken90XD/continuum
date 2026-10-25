@@ -1488,6 +1488,8 @@
     <string name="login_activity_internet_disconnected_error">No Internet Connection</string>
     <string name="login">Log in</string>
     <string name="login_using_different_method">You can try a different login method if this one doesn’t work.</string>
+    <string name="classic_view">Classic view (old app UI)</string>
+    <string name="reddit_web_activity_label">Continuum</string>
     <string name="login_using_chrome_custom_tab">Chrome Custom Tab</string>
     <string name="login_using_webview">WebView (legacy)</string>
     <string name="login_chrome_required">You must have a Chrome based or Firefox browser installed.</string>

@@ -80,6 +80,7 @@ import ml.docilealligator.infinityforreddit.bottomsheetfragments.ShareBottomShee
 import ml.docilealligator.infinityforreddit.broadcastreceivers.BootCompletedBroadcastReceiver;
 import ml.docilealligator.infinityforreddit.broadcastreceivers.ReminderAlarmReceiver;
 import ml.docilealligator.infinityforreddit.cookieauth.CookieLoginActivity;
+import ml.docilealligator.infinityforreddit.webclient.RedditWebActivity;
 import ml.docilealligator.infinityforreddit.fragments.CommentsListingFragment;
 import ml.docilealligator.infinityforreddit.fragments.CustomThemeListingFragment;
 import ml.docilealligator.infinityforreddit.fragments.FollowedUsersListingFragment;
@@ -150,6 +151,8 @@ public interface AppComponent {
     void inject(LoginActivity loginActivity);
 
     void inject(CookieLoginActivity cookieLoginActivity);
+
+    void inject(RedditWebActivity redditWebActivity);
 
     void inject(PostFragment postFragment);
 

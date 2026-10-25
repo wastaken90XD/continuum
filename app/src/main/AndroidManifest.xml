@@ -567,7 +567,12 @@
             android:exported="true"
             android:label="@string/application_name"
             android:theme="@style/AppTheme.Launcher"
-            android:windowSoftInputMode="adjustPan">
+            android:windowSoftInputMode="adjustPan" />
+        <activity
+            android:name=".webclient.RedditWebActivity"
+            android:exported="true"
+            android:label="@string/reddit_web_activity_label"
+            android:theme="@style/AppTheme.Launcher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
