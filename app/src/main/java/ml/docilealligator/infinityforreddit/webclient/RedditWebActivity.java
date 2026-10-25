@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
@@ -20,6 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.view.OneShotPreDrawListener;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.io.BufferedReader;
@@ -68,10 +71,23 @@ import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
  * since real audio/video muxing (Android's MediaMuxer, or an in-WebView ffmpeg.wasm like some
  * reference scripts use) needs on-device verification this sandbox cannot do, and a silently
  * broken "muxed" file would be worse than an honestly-labeled video-only one.
+ *
+ * <p>The WebView's actual rendering surface is capped below 720p regardless of the device's real
+ * screen size -- see {@link #capWebViewRenderResolution} -- trading rendering sharpness for
+ * compositing/GPU cost, on the assumption that a desktop-width page rendered inside a mobile
+ * WebView is heavier to keep smooth than the same screen's native UI ever was.
  */
 public class RedditWebActivity extends BaseActivity {
     private static final String TAG = "RedditWebActivity";
     private static final String REDDIT_HOME_URL = "https://www.reddit.com/";
+    /**
+     * Render-resolution cap (see {@link #capWebViewRenderResolution}): the WebView's own actual
+     * pixel bounds, i.e. what the browser engine rasterizes into, are kept at or under this on its
+     * short side -- comfortably under 720p's 720, not just technically under it.
+     */
+    private static final int MAX_RENDER_SHORT_SIDE_PX = 700;
+    /** Same idea as {@link #MAX_RENDER_SHORT_SIDE_PX}, for the long side (720p's 1280, same ratio). */
+    private static final int MAX_RENDER_LONG_SIDE_PX = 1245;
     /** Forces Reddit's responsive layout to its desktop breakpoint; see class javadoc. */
     private static final String FORCE_DESKTOP_VIEWPORT_JS =
             "(function(){"
@@ -137,8 +153,15 @@ public class RedditWebActivity extends BaseActivity {
 
         progressBar = findViewById(R.id.progress_bar_reddit_web_activity);
         webView = findViewById(R.id.web_view_reddit_web_activity);
+        View webViewContainer = findViewById(R.id.web_view_container_reddit_web_activity);
 
         applyCustomTheme();
+
+        // One-shot: the container's bounds are only needed once (what the WebView should visually
+        // fill), and this activity isn't declared to handle orientation changes itself, so a
+        // rotation recreates it and runs this again from scratch rather than needing a listener
+        // that keeps re-measuring.
+        OneShotPreDrawListener.add(webViewContainer, () -> capWebViewRenderResolution(webViewContainer));
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -169,7 +192,7 @@ public class RedditWebActivity extends BaseActivity {
             public void onPageStarted(WebView view, String url, @Nullable Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 if (progressBar != null) {
-                    progressBar.setVisibility(android.view.View.VISIBLE);
+                    progressBar.setVisibility(View.VISIBLE);
                     progressBar.setProgress(0);
                 }
             }
@@ -178,7 +201,7 @@ public class RedditWebActivity extends BaseActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (progressBar != null) {
-                    progressBar.setVisibility(android.view.View.GONE);
+                    progressBar.setVisibility(View.GONE);
                 }
                 if (pendingEnhancementsScript != null) {
                     view.evaluateJavascript(pendingEnhancementsScript, null);
@@ -211,7 +234,7 @@ public class RedditWebActivity extends BaseActivity {
                 super.onProgressChanged(view, newProgress);
                 if (progressBar != null) {
                     progressBar.setProgress(newProgress);
-                    progressBar.setVisibility(newProgress >= 100 ? android.view.View.GONE : android.view.View.VISIBLE);
+                    progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
                 }
             }
         });
@@ -246,6 +269,64 @@ public class RedditWebActivity extends BaseActivity {
             }
         }
         cookieManager.flush();
+    }
+
+    /**
+     * Keeps the WebView's actual rendering surface at or under 720p, regardless of how large the
+     * screen it's shown on actually is.
+     *
+     * <p>Does this the way a low-power video player downscales decode resolution and lets the
+     * display upscale it, rather than anything WebView-specific: shrink the View's own layout
+     * bounds (which is what the browser engine's compositor actually rasterizes into) to a smaller
+     * pixel size, then stretch that smaller surface back up with a plain {@link View#setScaleX}/
+     * {@link View#setScaleY} transform so it still visually fills {@code container}. Touch input
+     * still lands correctly -- Android's hit-testing and motion-event coordinate mapping already
+     * account for a view's scale transform, the same as it does for pinch-zoom or any other
+     * transformed view -- so this costs rendering sharpness (a 1280-CSS-px-wide desktop layout
+     * downsampled this way will look softer, especially on a high-density display), not
+     * interactivity, in exchange for rendering and compositing a meaningfully smaller number of
+     * pixels on every frame.
+     *
+     * <p>Composes with the desktop-layout viewport forcing in {@link #FORCE_DESKTOP_VIEWPORT_JS}
+     * rather than fighting it: that script tells the page to lay itself out assuming 1280 CSS
+     * pixels of width regardless of the device, and the browser engine already has to scale that
+     * layout to fit whatever space it is actually given -- shrinking the space it is given just
+     * means that scaling-to-fit happens against a smaller raster target.
+     *
+     * <p>A no-op if {@code container} is already at or under the cap (e.g. a small/low-res
+     * device), so this never *upscales* anything.
+     */
+    private void capWebViewRenderResolution(@NonNull View container) {
+        int actualWidth = container.getWidth();
+        int actualHeight = container.getHeight();
+        if (actualWidth <= 0 || actualHeight <= 0 || webView == null) {
+            return;
+        }
+
+        boolean widerThanTall = actualWidth >= actualHeight;
+        int capWidth = widerThanTall ? MAX_RENDER_LONG_SIDE_PX : MAX_RENDER_SHORT_SIDE_PX;
+        int capHeight = widerThanTall ? MAX_RENDER_SHORT_SIDE_PX : MAX_RENDER_LONG_SIDE_PX;
+
+        float scale = Math.min(1f, Math.min((float) capWidth / actualWidth, (float) capHeight / actualHeight));
+        if (scale >= 1f) {
+            return;
+        }
+
+        int renderWidth = Math.max(1, Math.round(actualWidth * scale));
+        int renderHeight = Math.max(1, Math.round(actualHeight * scale));
+
+        ViewGroup.LayoutParams params = webView.getLayoutParams();
+        params.width = renderWidth;
+        params.height = renderHeight;
+        webView.setLayoutParams(params);
+
+        webView.setPivotX(0f);
+        webView.setPivotY(0f);
+        webView.setScaleX((float) actualWidth / renderWidth);
+        webView.setScaleY((float) actualHeight / renderHeight);
+
+        Log.d(TAG, "Capped WebView render surface to " + renderWidth + "x" + renderHeight
+                + " (visually filling " + actualWidth + "x" + actualHeight + ")");
     }
 
     @Nullable

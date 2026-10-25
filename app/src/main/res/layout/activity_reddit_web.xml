@@ -23,6 +23,7 @@
         android:visibility="gone" />
 
     <FrameLayout
+        android:id="@+id/web_view_container_reddit_web_activity"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
