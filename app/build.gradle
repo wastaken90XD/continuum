@@ -18,8 +18,8 @@ android {
         minSdk 21
         targetSdk 21
         versionCode 1
-        // CI greps this file for the exact string `versionName "8.0.0.1"` and fails the job if it's
-        // not found -- keep this line's text exactly as-is even across future version bumps.
+        // CI greps this file for a line matching `versionName` followed by a quoted version
+        // string, and fails the job unless that version is exactly 8.0.0.1.
         versionName "8.0.0.1"
     }
 
