@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- The whole app is one WebView screen, so there's no need for a bespoke design system here
-         -- a stock Material DayNight theme covers the toolbar and splash background. -->
+    <!-- The whole app is one WebView screen, so there's no need for a bespoke design system here;
+         a stock Material DayNight theme covers the toolbar and splash background. -->
     <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/reddit_orange</item>
         <item name="colorPrimaryDark">@color/reddit_orange_dark</item>
