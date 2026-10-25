@@ -77,6 +77,7 @@
     <string name="action_unmark_spoiler">Unmark Spoiler</string>
     <string name="action_edit_flair">Edit Flair</string>
     <string name="action_change_post_layout">Change Post Layout</string>
+    <string name="action_switch_to_web_ui">Switch to Web UI</string>
     <string name="action_save">Save</string>
     <string name="action_edit_multi_reddit">Edit MultiReddit</string>
     <string name="action_delete_multi_reddit">Delete MultiReddit</string>

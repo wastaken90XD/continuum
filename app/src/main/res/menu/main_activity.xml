@@ -30,6 +30,12 @@
         android:title="@string/action_change_post_layout"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_switch_to_web_ui_main_activity"
+        android:orderInCategory="6"
+        android:title="@string/action_switch_to_web_ui"
+        app:showAsAction="never" />
+
     <!-- Ordered to land directly above PostFragment's "More Options" (103) in the merged menu. -->
     <item
         android:id="@+id/action_open_clipboard_reddit_link_main_activity"

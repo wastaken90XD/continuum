@@ -95,6 +95,7 @@ import ml.docilealligator.infinityforreddit.bottomsheetfragments.PostTypeBottomS
 import ml.docilealligator.infinityforreddit.bottomsheetfragments.SortTimeBottomSheetFragment;
 import ml.docilealligator.infinityforreddit.bottomsheetfragments.SortTypeBottomSheetFragment;
 import ml.docilealligator.infinityforreddit.cookieauth.CookieLoginActivity;
+import ml.docilealligator.infinityforreddit.webclient.RedditWebActivity;
 import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
 import ml.docilealligator.infinityforreddit.customviews.LinearLayoutManagerBugFixed;
 import ml.docilealligator.infinityforreddit.customviews.NavigationWrapper;
@@ -1733,6 +1734,9 @@ public class MainActivity extends BaseActivity implements SortTypeSelectionCallb
             return true;
         } else if (itemId == R.id.action_open_clipboard_reddit_link_main_activity) {
             openClipboardRedditLink();
+            return true;
+        } else if (itemId == R.id.action_switch_to_web_ui_main_activity) {
+            startActivity(new Intent(this, RedditWebActivity.class));
             return true;
         }
         return false;

@@ -48,15 +48,13 @@ import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
  * place, unchanged and still fully functional, but are no longer the app's primary entry point --
  * reachable only from this screen's "Classic view" menu item while this pivot is being proven out.
  *
- * <p>Deliberately does <b>not</b> use a desktop-browser User-Agent string, even though the user
- * asked for "the desktop site": {@link CookieAuthConstants#CHROME_USER_AGENT} is shared verbatim
- * across {@link CookieLoginActivity} (where the session cookie was minted), this screen, and
- * every other cookie-session consumer specifically so Reddit never sees the UA change mid-session
- * -- see that constant's javadoc for why a mismatch there reads as session hijacking. The desktop
- * *layout* is instead forced the way a browser's own "Desktop site" toggle does it: a wide virtual
- * viewport, which is what Reddit's responsive layout actually keys off of. If Reddit's frontend
- * ever turns out to gate the desktop template on UA sniffing rather than viewport width, this will
- * need revisiting -- there was no way to confirm which one on a live site from this sandbox.
+ * <p>Uses {@link CookieAuthConstants#DESKTOP_CHROME_USER_AGENT}, not the mobile UA shared by
+ * login and every other cookie-session consumer -- see that constant's javadoc. The first version
+ * of this screen tried to get the desktop layout from viewport width alone, on the theory that
+ * Reddit's frontend was purely responsive; confirmed on a real device that it is not. Reddit
+ * decides mobile vs. desktop template server-side from the User-Agent, so a real desktop UA is
+ * required, and the wide-viewport forcing below is now a belt-and-suspenders fallback rather than
+ * the actual mechanism.
  *
  * <p>The media-download feature ({@code reddit_web_enhancements.js} + {@link RedditDownloadBridge})
  * is adapted from the public "Zero Trust" design pattern used by open-source Reddit media
@@ -88,7 +86,11 @@ public class RedditWebActivity extends BaseActivity {
     private static final int MAX_RENDER_SHORT_SIDE_PX = 700;
     /** Same idea as {@link #MAX_RENDER_SHORT_SIDE_PX}, for the long side (720p's 1280, same ratio). */
     private static final int MAX_RENDER_LONG_SIDE_PX = 1245;
-    /** Forces Reddit's responsive layout to its desktop breakpoint; see class javadoc. */
+    /**
+     * Belt-and-suspenders fallback alongside {@link CookieAuthConstants#DESKTOP_CHROME_USER_AGENT}
+     * -- a wide virtual viewport, in case any Reddit-served page still reacts to viewport width
+     * (e.g. a sub-page that isn't fully template-switched). See class javadoc.
+     */
     private static final String FORCE_DESKTOP_VIEWPORT_JS =
             "(function(){"
                     + "function apply(){"
@@ -170,7 +172,7 @@ public class RedditWebActivity extends BaseActivity {
 
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
-        webView.getSettings().setUserAgentString(CookieAuthConstants.CHROME_USER_AGENT);
+        webView.getSettings().setUserAgentString(CookieAuthConstants.DESKTOP_CHROME_USER_AGENT);
         webView.getSettings().setUseWideViewPort(true);
         webView.getSettings().setLoadWithOverviewMode(true);
         webView.getSettings().setSupportZoom(true);
