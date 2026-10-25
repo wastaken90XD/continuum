@@ -15,7 +15,6 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -32,7 +31,6 @@ import ml.docilealligator.infinityforreddit.events.NewUserLoggedInEvent;
 import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 import okhttp3.OkHttpClient;
 import org.greenrobot.eventbus.EventBus;
-import org.json.JSONObject;
 import retrofit2.Retrofit;
 
 /**
@@ -293,52 +291,7 @@ public class CookieLoginActivity extends BaseActivity {
      * the cookie jar) shows real, logged-in evidence rather than just an anonymous visit.
      */
     private boolean looksLikeRealSession(String cookieHeader) {
-        if (cookieHeader.contains("reddit_session=")) {
-            // Never minted for a purely anonymous visit, unlike token_v2 -- sufficient on its own.
-            return true;
-        }
-        String tokenV2 = extractCookieValue(cookieHeader, "token_v2");
-        return tokenV2 != null && !isAnonymousJwt(tokenV2);
-    }
-
-    @Nullable
-    private static String extractCookieValue(String cookieHeader, String name) {
-        String prefix = name + "=";
-        for (String part : cookieHeader.split(";")) {
-            String trimmed = part.trim();
-            if (trimmed.startsWith(prefix)) {
-                return trimmed.substring(prefix.length());
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Reddit's {@code token_v2} cookie is a JWT with a {@code sub} claim of either {@code "loid"}
-     * (anonymous visitor id -- minted even when logged out) or {@code "user"} (a real signed-in
-     * session). If the token can't be decoded at all, errs toward "not confirmed yet" (false isn't
-     * returned here) rather than treating an unreadable token as proof of login.
-     */
-    private static boolean isAnonymousJwt(String jwt) {
-        try {
-            String[] parts = jwt.split("\\.");
-            if (parts.length < 2) {
-                return true;
-            }
-            String payload = parts[1];
-            int remainder = payload.length() % 4;
-            if (remainder != 0) {
-                payload = payload + "====".substring(remainder);
-            }
-            byte[] decoded = android.util.Base64.decode(payload,
-                    android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP);
-            JSONObject json = new JSONObject(new String(decoded, StandardCharsets.UTF_8));
-            return "loid".equals(json.optString("sub", "loid"));
-        } catch (Exception e) {
-            // Unreadable/unexpected token shape -- treat as anonymous (i.e. keep waiting) rather
-            // than risk firing FetchMyInfo against a session that was never actually established.
-            return true;
-        }
+        return CookieSessionUtils.looksLikeRealSession(cookieHeader);
     }
 
     private void finishSuccessfully() {

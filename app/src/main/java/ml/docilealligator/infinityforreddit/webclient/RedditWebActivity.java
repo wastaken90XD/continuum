@@ -39,6 +39,7 @@ import ml.docilealligator.infinityforreddit.activities.BaseActivity;
 import ml.docilealligator.infinityforreddit.activities.MainActivity;
 import ml.docilealligator.infinityforreddit.cookieauth.CookieAuthConstants;
 import ml.docilealligator.infinityforreddit.cookieauth.CookieLoginActivity;
+import ml.docilealligator.infinityforreddit.cookieauth.CookieSessionUtils;
 import ml.docilealligator.infinityforreddit.customtheme.CustomThemeWrapper;
 
 /**
@@ -256,14 +257,40 @@ public class RedditWebActivity extends BaseActivity {
         });
     }
 
+    /**
+     * Seeds the WebView's cookie jar from the one-time snapshot {@link CookieLoginActivity}
+     * captured at login, but only as a fallback for when that jar doesn't already have a real
+     * session -- not unconditionally on every call.
+     *
+     * <p>Android's {@link CookieManager} already persists its own cookie jar to disk and reloads
+     * it automatically on process start; it is the same process-wide singleton this WebView and
+     * {@link CookieLoginActivity}'s WebView both use, so a login made minutes or weeks ago is
+     * already sitting in it with no copying needed at all. Reddit also actively rotates session
+     * cookies during ordinary browsing (a refreshed {@code token_v2}, a new {@code
+     * reddit_session}, ...), landing those updates in that same live jar via ordinary
+     * {@code Set-Cookie} response headers.
+     *
+     * <p>Calling this unconditionally on every cold start -- which an earlier version of this
+     * method did -- fights that: it reapplies the one string captured at login over whatever the
+     * live jar has since rotated to, silently downgrading the session back to its login-time
+     * state every time the app restarts. Only recovering from the snapshot when the live jar has
+     * nothing usable at all (a fresh install's first cold start right after login, or the WebView
+     * data having been cleared independently of the app, e.g. via Android's per-app storage
+     * settings) keeps this a recovery path instead of a standing bug.
+     */
     private void syncStoredCookieIntoWebView() {
+        CookieManager cookieManager = CookieManager.getInstance();
+        String liveCookie = cookieManager.getCookie("https://www.reddit.com");
+        if (CookieSessionUtils.looksLikeRealSession(liveCookie)) {
+            return;
+        }
+
         SharedPreferences prefs = getSharedPreferences(
                 CookieAuthConstants.COOKIE_PREFS_NAME, MODE_PRIVATE);
         String cookie = prefs.getString(CookieAuthConstants.COOKIE_PREFS_KEY, null);
         if (cookie == null || cookie.isEmpty()) {
             return;
         }
-        CookieManager cookieManager = CookieManager.getInstance();
         for (String part : cookie.split(";")) {
             String trimmed = part.trim();
             if (!trimmed.isEmpty()) {
@@ -272,6 +299,7 @@ public class RedditWebActivity extends BaseActivity {
         }
         cookieManager.flush();
     }
+
 
     /**
      * Keeps the WebView's actual rendering surface at or under 720p, regardless of how large the
@@ -368,6 +396,15 @@ public class RedditWebActivity extends BaseActivity {
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Belt-and-suspenders: CookieManager persists in the background on its own, but an
+        // explicit flush here means whatever Reddit has rotated the session cookies to is
+        // actually on disk before the process risks being killed in the background.
+        CookieManager.getInstance().flush();
     }
 
     @Override
