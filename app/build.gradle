@@ -48,11 +48,14 @@ android {
         disable 'MissingTranslation'
         error 'NewApi'
         abortOnError true
-        lintChecks project(':lint-checks')
     }
 }
 
 dependencies {
+    // Custom lint rule (InconsistentLayoutVariantIds) wired in via the lintChecks dependency
+    // configuration, not the android.lint {} block -- see lint-checks/build.gradle.
+    lintChecks project(':lint-checks')
+
     // Versions below are pinned, not left floating, because AndroidX libraries have been raising
     // their own minSdk floor over 2025; each comment records the lowest version confirmed to still
     // compile against this app's minSdk 21, per the versions actually validated for this app before
