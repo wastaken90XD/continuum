@@ -7,4 +7,9 @@
         android:title="@string/refresh"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_settings_reddit_web_activity"
+        android:title="@string/settings"
+        app:showAsAction="never" />
+
 </menu>

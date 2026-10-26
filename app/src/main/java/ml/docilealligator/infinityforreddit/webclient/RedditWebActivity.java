@@ -31,12 +31,22 @@ import java.util.Collections;
 import ml.docilealligator.infinityforreddit.R;
 
 /**
- * Continuum, standalone: the entire app is this one screen -- a WebView showing the real desktop
- * reddit.com. There is no separate native UI, account/database layer, or dependency-injection
+ * Continuum, standalone: the entire app is this one screen -- a WebView showing a real desktop
+ * Reddit frontend. There is no separate native UI, account/database layer, or dependency-injection
  * graph anymore; the browser's own cookie jar (persisted automatically by {@link CookieManager})
  * is the one and only source of truth for whether the user is logged in, exactly like using Chrome
  * or any other browser. Signing in happens through Reddit's own website UI, inside this same
  * WebView -- there is no separate login screen to build or keep in sync.
+ *
+ * <p>Which frontend loads here -- Old Reddit, New Reddit, or a Redlib instance -- is a
+ * {@link RedditSettings} choice, changed from {@link SettingsActivity}. Old Reddit is the default:
+ * New Reddit (www.reddit.com) is the heavy, JavaScript-driven redesign and the main source of
+ * reported lag; Old Reddit is the same light, server-rendered page Reddit Enhancement Suite
+ * (https://github.com/honestbleeps/Reddit-Enhancement-Suite) was built against. Old Reddit also
+ * gets a reimplementation of RES's flagship "Never-Ending Reddit" feature (auto-pagination on
+ * scroll) -- see old_reddit_never_ending.js -- toggleable from settings. Redlib is read-only and
+ * does not share a login with reddit.com; picking it is a privacy/performance tradeoff, not a
+ * replacement for the account-backed frontends.
  *
  * <p>Uses {@link #DESKTOP_USER_AGENT}, not a mobile one: Reddit decides mobile vs. desktop layout
  * server-side from the request's User-Agent, not from viewport width -- confirmed by trying the
@@ -48,7 +58,9 @@ import ml.docilealligator.infinityforreddit.R;
  * downloader userscripts (trusted-CDN allowlist, HTTPS-only, sanitized filenames) -- reimplemented
  * against a native Android bridge rather than copied, since those scripts rely on Tampermonkey-only
  * APIs that don't exist in a plain WebView, and running actual third-party script against this
- * WebView's live session would be a real way to leak or hijack it.
+ * WebView's live session would be a real way to leak or hijack it. That allowlist is reddit.com's
+ * own media CDNs only, so it does not recognize a Redlib instance's proxied media URLs -- downloads
+ * are a reddit.com-frontend-only feature for now.
  *
  * <p>Known limitation: v.redd.it serves video and audio as separate streams with no combined file
  * exposed anywhere, so downloaded videos have no audio track. Real muxing (Android's MediaMuxer, or
@@ -66,7 +78,6 @@ import ml.docilealligator.infinityforreddit.R;
  */
 public class RedditWebActivity extends AppCompatActivity {
     private static final String TAG = "RedditWebActivity";
-    private static final String REDDIT_HOME_URL = "https://www.reddit.com/";
     private static final String DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -93,6 +104,11 @@ public class RedditWebActivity extends AppCompatActivity {
     private ProgressBar progressBar;
     @Nullable
     private String pendingEnhancementsScript;
+    @Nullable
+    private String pendingNeverEndingRedditScript;
+    private RedditSettings settings;
+    /** The home URL last loaded -- compared against settings in onResume() to detect a change. */
+    private String loadedHomeUrl;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -101,6 +117,8 @@ public class RedditWebActivity extends AppCompatActivity {
 
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_reddit_web);
+
+        settings = new RedditSettings(this);
 
         Toolbar toolbar = findViewById(R.id.toolbar_reddit_web_activity);
         setSupportActionBar(toolbar);
@@ -133,6 +151,7 @@ public class RedditWebActivity extends AppCompatActivity {
         }
 
         pendingEnhancementsScript = readAssetAsString("reddit_web_enhancements.js");
+        pendingNeverEndingRedditScript = readAssetAsString("old_reddit_never_ending.js");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -153,6 +172,11 @@ public class RedditWebActivity extends AppCompatActivity {
                 if (pendingEnhancementsScript != null) {
                     view.evaluateJavascript(pendingEnhancementsScript, null);
                 }
+                Uri pageUri = url != null ? Uri.parse(url) : null;
+                boolean isOldReddit = pageUri != null && "old.reddit.com".equals(pageUri.getHost());
+                if (isOldReddit && settings.isNeverEndingRedditEnabled() && pendingNeverEndingRedditScript != null) {
+                    view.evaluateJavascript(pendingNeverEndingRedditScript, null);
+                }
             }
 
             @Override
@@ -162,6 +186,11 @@ public class RedditWebActivity extends AppCompatActivity {
                 if (host != null && (host.endsWith("reddit.com") || host.equals("redd.it"))) {
                     // Stay inside this WebView for anything Reddit-hosted, including its own
                     // media CDNs (v.redd.it, i.redd.it, preview.redd.it, ...).
+                    return false;
+                }
+                if (host != null && host.equalsIgnoreCase(settings.getPrimaryHost())) {
+                    // The currently selected Redlib instance -- an arbitrary third-party domain,
+                    // so it can't be covered by the reddit.com check above.
                     return false;
                 }
                 // An outbound link (an article, an external image host, etc.) -- hand it to the
@@ -186,7 +215,8 @@ public class RedditWebActivity extends AppCompatActivity {
             }
         });
 
-        webView.loadUrl(REDDIT_HOME_URL);
+        loadedHomeUrl = settings.getHomeUrl();
+        webView.loadUrl(loadedHomeUrl);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -199,6 +229,19 @@ public class RedditWebActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Catches coming back from SettingsActivity with a different frontend/instance chosen.
+        // Comparing the resolved home URL (not just the frontend id) also catches switching
+        // between two Redlib instances, which is still the same "frontend" value.
+        String currentHomeUrl = settings.getHomeUrl();
+        if (!currentHomeUrl.equals(loadedHomeUrl)) {
+            loadedHomeUrl = currentHomeUrl;
+            webView.loadUrl(currentHomeUrl);
+        }
     }
 
     @Override
@@ -244,6 +287,10 @@ public class RedditWebActivity extends AppCompatActivity {
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         if (item.getItemId() == R.id.action_refresh_reddit_web_activity) {
             webView.reload();
+            return true;
+        }
+        if (item.getItemId() == R.id.action_settings_reddit_web_activity) {
+            startActivity(new Intent(this, SettingsActivity.class));
             return true;
         }
         return super.onOptionsItemSelected(item);

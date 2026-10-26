@@ -35,6 +35,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name="ml.docilealligator.infinityforreddit.webclient.SettingsActivity"
+            android:exported="false"
+            android:label="@string/settings"
+            android:parentActivityName="ml.docilealligator.infinityforreddit.webclient.RedditWebActivity" />
+
     </application>
 
 </manifest>

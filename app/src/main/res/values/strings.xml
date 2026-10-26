@@ -2,4 +2,21 @@
 <resources>
     <string name="app_name" translatable="false">Continuum</string>
     <string name="refresh">Refresh</string>
+    <string name="settings">Settings</string>
+
+    <string name="settings_frontend_heading">Reddit frontend</string>
+    <string name="settings_frontend_explanation">www.reddit.com (the current official redesign) ships a lot of JavaScript and is the main reason browsing can feel laggy. Old Reddit is the classic, server-rendered page -- the same one Reddit Enhancement Suite was built for -- and is far lighter.</string>
+    <string name="settings_frontend_old_reddit">Old Reddit (old.reddit.com) -- fastest, recommended</string>
+    <string name="settings_frontend_new_reddit">New Reddit (www.reddit.com) -- official redesign, heavier</string>
+    <string name="settings_frontend_redlib">Redlib -- third-party, privacy-friendly, read-only</string>
+
+    <string name="settings_never_ending_reddit">Never-Ending Reddit</string>
+    <string name="settings_never_ending_reddit_explanation">Inspired by Reddit Enhancement Suite\'s feature of the same name: automatically loads the next listing page as you scroll near the bottom, instead of making you tap "next". Old Reddit only.</string>
+
+    <string name="settings_redlib_explanation">Redlib instances are run by third parties and are read-only -- your reddit.com login does not carry over and there is no account or voting support. Instances also go up and down; pick another one if your choice stops loading.</string>
+    <string name="settings_redlib_custom_instance_hint">https://your-instance.example</string>
+    <string name="settings_redlib_custom_instance_option">Custom instance\u2026</string>
+
+    <string name="settings_save_and_reload">Save and reload</string>
+    <string name="settings_invalid_custom_instance">Enter a valid https:// instance URL</string>
 </resources>
