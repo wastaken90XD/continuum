@@ -1,0 +1,384 @@
+# CI build workflow for the `arena/1c885f2a-continuum` branch, pinned to
+# app version 8.0.0.1.
+#
+# This is deliberately a separate workflow file from `.github/workflows/build.yml`
+# (which is intentionally disabled on this fork — see the comments in that file).
+# It gives this branch its own independent CI build/verification pipeline without
+# touching that upstream-merge-conflict guard.
+#
+# Reporting: raw Actions step logs are served from short-lived signed blob-storage
+# URLs that aren't reachable from every environment (e.g. an agent sandboxed to
+# api.github.com only). So on top of the normal log output, the Gradle build's
+# outcome is also written to the job summary and to a sticky PR comment via the
+# REST API, which *is* reachable everywhere `gh`/`api.github.com` is. That keeps a
+# human-, and tool-, readable failure report available even when the raw log
+# can't be fetched directly.
+name: CI Build (8.0.0.1)
+
+on:
+  push:
+    branches:
+      - arena/1c885f2a-continuum
+    tags:
+      - '8.0.0.1'
+  pull_request:
+    branches:
+      - arena/1c885f2a-continuum
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  EXPECTED_VERSION_NAME: "8.0.0.1"
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify versionName is pinned to 8.0.0.1
+        run: |
+          actual=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle)
+          echo "versionName in app/build.gradle: $actual"
+          if [ "$actual" != "$EXPECTED_VERSION_NAME" ]; then
+            echo "::error::Expected versionName $EXPECTED_VERSION_NAME but found $actual"
+            exit 1
+          fi
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # gradle/actions/setup-gradle above already caches ~/.gradle (dependencies + the Gradle
+      # build cache), but Kotlin/Java *incremental* compilation state lives in each module's
+      # build/ directory, which doesn't exist on a fresh checkout. Without it, every push -- even
+      # a one-line change -- recompiles the whole module from scratch, because Gradle's build
+      # cache keys a whole compile task on the hash of *all* its inputs combined, so any single
+      # changed source file is a full cache miss for that task. Restoring the previous run's
+      # build/ dirs here lets compileDebugKotlin/compileDebugJavaWithJavac's incremental compilers
+      # pick up where they left off. Keyed per-SHA (so every run saves a fresh entry) with a
+      # prefix restore-key (so every run starts from the most recent available one).
+      # Using the split restore/save actions (rather than the combined actions/cache@v4 with
+      # save-always) because save-always is deprecated upstream ("does not work as intended") --
+      # see https://github.com/actions/cache/tree/main/save#always-save-cache. This job
+      # deliberately fails whenever lint finds a NewApi violation (see the "Fail job if Gradle
+      # build or lint failed" step below), and a normal actions/cache save (its "post" step) is
+      # skipped by GitHub Actions whenever the job's conclusion is a failure. The matching
+      # "Save incremental build directories" step further down explicitly runs with if: always()
+      # instead, so every run while a lint finding is outstanding still contributes its own
+      # intermediate compiler output back to the cache for the next run.
+      - name: Restore incremental build directories
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/build
+            lint-checks/build
+          key: incremental-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            incremental-build-${{ runner.os }}-
+
+      # The cache restore above is only meant to seed Gradle/Kotlin's *intermediate* incremental
+      # compilation state. The final APK and lint report are small and quick to regenerate, and
+      # must never be a leftover from a previous (possibly different) commit -- otherwise a stale
+      # file here could get uploaded as an artifact, or read into the build report, even if this
+      # run's own build or lint step fails before regenerating it.
+      - name: Clear stale APK and lint report outputs from the restored cache
+        run: |
+          rm -rf app/build/outputs/apk
+          rm -rf app/build/reports/lint-results-debug.html app/build/reports/lint-results-debug.xml
+
+      # Does not fail the step itself -- the real pass/fail verdict is applied by
+      # "Fail job if Gradle build failed" below, after the report has been written
+      # and posted. That ordering is what lets the report step always run.
+      - name: Build debug APK
+        id: gradle_build
+        run: |
+          set +o pipefail
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      # One-off diagnostic (not a permanent part of the pipeline): breaks down what's actually
+      # inside the debug APK(s) by size, since raw Actions logs and artifact downloads aren't
+      # reachable from every environment (see the file header), but this sticky-comment report
+      # is. Runs even if assembleDebug failed, in case a split-ABI APK still got produced before
+      # the failure.
+      - name: Analyze APK size
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, zipfile
+
+          out_dir = pathlib.Path("app/build/outputs/apk/debug")
+          lines = []
+          apks = sorted(out_dir.glob("*.apk")) if out_dir.exists() else []
+          if not apks:
+              lines.append("No debug APK found under app/build/outputs/apk/debug.")
+          for apk in apks:
+              total = apk.stat().st_size
+              lines.append(f"=== {apk.name}: {total:,} bytes ({total / 1024 / 1024:.1f} MiB) ===")
+              with zipfile.ZipFile(apk) as zf:
+                  infos = zf.infolist()
+                  # Aggregate by top-level path segment (lib/, assets/, res/, META-INF/, root files).
+                  by_group = {}
+                  for info in infos:
+                      name = info.filename
+                      group = name.split("/")[0] if "/" in name else name
+                      by_group[group] = by_group.get(group, 0) + info.file_size
+                  lines.append("-- by top-level group (uncompressed size) --")
+                  for group, size in sorted(by_group.items(), key=lambda kv: -kv[1])[:20]:
+                      lines.append(f"  {size:>12,}  {group}")
+                  lines.append("-- largest 25 individual entries (uncompressed size) --")
+                  for info in sorted(infos, key=lambda i: -i.file_size)[:25]:
+                      lines.append(f"  {info.file_size:>12,}  {info.filename}")
+                  lines.append("")
+          pathlib.Path("apk-size-report.txt").write_text("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PY
+        shell: bash
+
+      # Lint's NewApi check is what actually catches "uses an API above minSdk 21" in code
+      # (as opposed to the manifest-merger check above, which only catches a *dependency's*
+      # declared minSdk). assembleDebug does not run the lint task, so it's invoked separately
+      # here. Always runs (even if assembleDebug failed) so lint results are visible on every
+      # run -- if assembleDebug failed on something lint also depends on (e.g. the manifest
+      # merger), lintDebug will fail at that same step and the report below will show it as a
+      # Gradle invocation failure rather than NewApi findings, but it still runs and is reported.
+      # app/build.gradle's lint { baseline = file("lint-baseline.xml") } is intentionally
+      # gitignored (see .gitignore) -- it's a per-developer local file, never committed, that
+      # grandfathers whatever pre-existing findings were already present when a given developer
+      # last generated it. On a fresh CI checkout that file never exists, so lint recreates it
+      # every single run -- and by design, lint always aborts the build the first time a baseline
+      # file is created, even if the fresh baseline ends up empty. -Dlint.baselines.continue=true
+      # suppresses only that one-time "a new baseline was created" abort; it does not touch
+      # abortOnError, so a real NewApi error from the lint { error 'NewApi' } block above still
+      # fails this step exactly as before. (Setting this via gradle.properties instead of as a
+      # CLI flag is reported unreliable upstream -- it has to be passed here.)
+      - name: Run Android Lint (lintDebug)
+        id: lint_debug
+        if: always()
+        run: |
+          set +o pipefail
+          ./gradlew lintDebug --stacktrace -Dlint.baselines.continue=true 2>&1 | tee lint.log
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      # Explicit save (rather than relying on actions/cache@v4's own post-step) so this still
+      # runs even when assembleDebug or lintDebug fails -- see the comment on "Restore
+      # incremental build directories" above. Always overwrites this SHA's own key with
+      # whatever got compiled in this run, win or lose, since even a failed compile leaves
+      # usable incremental state for the sources that *did* compile.
+      - name: Save incremental build directories
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/build
+            lint-checks/build
+          key: incremental-build-${{ runner.os }}-${{ github.sha }}
+
+      - name: Generate build report
+        if: always()
+        env:
+          GRADLE_STATUS: ${{ steps.gradle_build.outputs.status }}
+          LINT_RAN: "true"
+          LINT_STATUS: ${{ steps.lint_debug.outputs.status }}
+          MIN_SDK_EXPECTED: "21"
+        run: |
+          python3 - <<'PY'
+          import os, re, pathlib
+
+          status = os.environ.get("GRADLE_STATUS", "1")
+          passed = status == "0"
+          log = pathlib.Path("build.log").read_text(errors="replace") if pathlib.Path("build.log").exists() else ""
+          min_sdk_expected = os.environ.get("MIN_SDK_EXPECTED", "")
+
+          lint_ran = os.environ.get("LINT_RAN", "") == "true"
+          lint_status = os.environ.get("LINT_STATUS", "")
+          lint_passed = lint_status == "0"
+          lint_log = pathlib.Path("lint.log").read_text(errors="replace") if pathlib.Path("lint.log").exists() else ""
+
+          lines = [
+              "<!-- continuum-ci-build-8.0.0.1-report -->",
+              f"## Continuum CI Build (8.0.0.1) Report (`{os.environ.get('GITHUB_SHA', '')[:12]}`)",
+              "",
+              f"**Gradle `assembleDebug`: {'PASSED' if passed else 'FAILED'}**",
+          ]
+          if lint_ran:
+              lines.append(f"**Gradle `lintDebug` (NewApi / API {min_sdk_expected} check): {'PASSED' if lint_passed else 'FAILED'}**")
+          lines.append("")
+
+          if not passed:
+              # Pull out the parts of a Gradle failure a human actually needs, rather than
+              # dumping the whole (often huge) log: the top-level "FAILURE" summary, any
+              # manifest-merger conflict (the thing minSdk changes trip over), and a short
+              # tail for anything else.
+              what_went_wrong = re.search(
+                  r"(\* What went wrong:\n(?:.+\n)+?)(?:\n\* Try:|\nBUILD FAILED|\Z)",
+                  log,
+              )
+              manifest_conflicts = re.findall(
+                  r"Manifest merger failed[^\n]*\n(?:.+\n)*?Suggestion:[^\n]*\n",
+                  log,
+              )
+
+              if manifest_conflicts:
+                  lines.append("### Manifest merger conflicts (dependency minSdk requirement)")
+                  lines.append("")
+                  lines.append("```text")
+                  lines.append("\n".join(manifest_conflicts).strip())
+                  lines.append("```")
+                  lines.append("")
+
+              if what_went_wrong:
+                  lines.append("### What went wrong")
+                  lines.append("")
+                  lines.append("```text")
+                  lines.append(what_went_wrong.group(1).strip())
+                  lines.append("```")
+                  lines.append("")
+
+              tail = "\n".join(log.splitlines()[-80:])
+              lines.append("### Diagnostic tail (last 80 lines)")
+              lines.append("")
+              lines.append("```text")
+              lines.append(tail)
+              lines.append("```")
+          else:
+              lines.append(f"minSdk target for this run: `{min_sdk_expected}`. `assembleDebug` succeeded -- no build diagnostics needed.")
+
+          if lint_ran and not lint_passed:
+              lines.append("")
+              lines.append("### Lint findings (NewApi / code using APIs above minSdk)")
+              lines.append("")
+              # Lines like "...Foo.java:123: Error: Call requires API level 23 ... [NewApi]"
+              findings = [l for l in lint_log.splitlines() if re.search(r"\[NewApi\]", l) or re.search(r": (Error|Warning): .*API level", l)]
+              if findings:
+                  lines.append("```text")
+                  lines.extend(findings[:150])
+                  lines.append("```")
+                  lines.append("")
+              summary = re.search(r"^\d+ errors?, \d+ warnings?$", lint_log, re.MULTILINE)
+              if summary:
+                  lines.append(f"Summary: `{summary.group(0)}`")
+                  lines.append("")
+
+              # lintDebug can also fail for a reason that has nothing to do with a NewApi
+              # finding (a different lint check, or the Gradle invocation itself erroring out),
+              # in which case `findings` above is empty. Surface Gradle's own "What went wrong"
+              # block the same way the build-failure branch above does, so that case is never
+              # silently represented as an empty findings section.
+              if not findings:
+                  lint_what_went_wrong = re.search(
+                      r"(\* What went wrong:\n(?:.+\n)+?)(?:\n\* Try:|\nBUILD FAILED|\Z)",
+                      lint_log,
+                  )
+                  if lint_what_went_wrong:
+                      lines.append("### Lint: what went wrong (not a NewApi finding)")
+                      lines.append("")
+                      lines.append("```text")
+                      lines.append(lint_what_went_wrong.group(1).strip())
+                      lines.append("```")
+                      lines.append("")
+
+              tail = "\n".join(lint_log.splitlines()[-60:])
+              lines.append("### Lint diagnostic tail (last 60 lines)")
+              lines.append("")
+              lines.append("```text")
+              lines.append(tail)
+              lines.append("```")
+
+          apk_size_report = pathlib.Path("apk-size-report.txt")
+          if apk_size_report.exists():
+              lines.append("")
+              lines.append("### APK size breakdown (one-off diagnostic)")
+              lines.append("")
+              lines.append("```text")
+              lines.append(apk_size_report.read_text(errors="replace").strip())
+              lines.append("```")
+
+          report = "\n".join(lines) + "\n"
+          pathlib.Path("report.md").write_text(report)
+          # Also surface it in the Actions UI job summary.
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a") as f:
+                  f.write(report)
+          PY
+
+      - name: Post or update sticky PR comment with build report
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          sha="${{ github.sha }}"
+          pr_num=$(gh api "repos/$repo/commits/$sha/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -z "$pr_num" ]; then
+            echo "No open PR associated with $sha; skipping PR comment."
+            exit 0
+          fi
+          comment_id=$(gh api "repos/$repo/issues/$pr_num/comments" --paginate \
+            --jq '.[] | select(.body | contains("<!-- continuum-ci-build-8.0.0.1-report -->")) | .id' | head -n 1 || true)
+          if [ -n "$comment_id" ]; then
+            gh api -X PATCH "repos/$repo/issues/comments/$comment_id" -F body=@report.md
+          else
+            gh api -X POST "repos/$repo/issues/$pr_num/comments" -F body=@report.md
+          fi
+
+      - name: Upload build log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuum-8.0.0.1-build-log
+          path: build.log
+          if-no-files-found: ignore
+
+      - name: Upload lint report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuum-8.0.0.1-lint-report
+          path: |
+            lint.log
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: ignore
+
+      - name: Upload APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuum-8.0.0.1-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+
+      - name: Fail job if Gradle build or lint failed
+        if: always()
+        run: |
+          failed=0
+          if [ "${{ steps.gradle_build.outputs.status }}" != "0" ]; then
+            echo "::error::Gradle assembleDebug failed. See the job summary or the PR comment above for a report."
+            failed=1
+          fi
+          if [ "${{ steps.lint_debug.outputs.status }}" != "0" ]; then
+            echo "::error::Gradle lintDebug failed (NewApi / API 21 violations, or lint couldn't run because assembleDebug's own failure blocks it too). See the job summary or the PR comment above for a report."
+            failed=1
+          fi
+          if [ "$failed" != "0" ]; then
+            exit 1
+          fi
