@@ -13,6 +13,19 @@
 // does change without notice -- the selectors below are a best-effort snapshot, not a stable
 // contract. If Reddit changes their markup, the worst case is the download button silently stops
 // appearing (fails safe), not a crash.
+//
+// Download menu: clicking the per-post download button opens a small in-page action sheet (built
+// here, not a native Android dialog) listing every option this file can offer for that post --
+// this is the "multiple options" surface, modeled loosely on how a desktop extension like Video
+// DownloadHelper presents several quality/format choices instead of a single silent download.
+//   - video posts: fetches the DASH manifest (same one v.redd.it's own player already requests) to
+//     list real quality options, each paired with the best available audio track, so the resulting
+//     file actually has sound -- see downloadVideoMuxed below and RedditDownloadBridge's
+//     MediaMuxer-based merge. A "video only, no audio" option is always offered too, since manifest
+//     parsing is a best-effort step that can fail if Reddit changes the manifest shape.
+//   - gallery posts: "download all N images" plus one entry per image.
+//   - single image posts: a plain download, plus "copy link" for anyone who'd rather save it with
+//     a different tool from this file's research catalog (see docs/reddit-download-methods-research.md).
 (function () {
     'use strict';
 
@@ -57,12 +70,10 @@
         return result.substring(0, 150) || 'reddit-media';
     }
 
-    function guessMimeHint(url) {
-        var lower = url.toLowerCase();
-        if (lower.indexOf('v.redd.it') !== -1 || /\.(mp4|webm|mov|m4v)(\?|$)/.test(lower)) {
-            return 'video';
-        }
-        return 'image';
+    function extensionFromUrl(value, fallback) {
+        var withoutQuery = value.split('?')[0];
+        var match = withoutQuery.match(/\.[a-zA-Z0-9]+$/);
+        return match ? match[0] : fallback;
     }
 
     // --- Hide the app-install nag / cookie-consent overlays that otherwise cover the page ---
@@ -80,7 +91,329 @@
         }
     }
 
+    // --- Clipboard helper used by the "copy link" option everywhere below ---
+    function copyToClipboard(text) {
+        var ok = false;
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text);
+                ok = true;
+            } else {
+                var textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                ok = document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+        } catch (e) {
+            ok = false;
+        }
+        if (window.ContinuumDownloadBridge && window.ContinuumDownloadBridge.toast) {
+            window.ContinuumDownloadBridge.toast(ok ? 'Link copied' : "Couldn't copy link");
+        }
+    }
+
+    function triggerSingleDownload(url, filename, typeHint) {
+        if (window.ContinuumDownloadBridge && isAllowedMediaUrl(url)) {
+            window.ContinuumDownloadBridge.downloadMedia(url, filename, typeHint);
+        }
+    }
+
+    // --- Action sheet: a minimal bottom-sheet-style menu for presenting multiple download
+    // options. Built from plain DOM/inline styles (no new CSS file, matching this file's existing
+    // single-button style) and attached to document.body rather than the post element, since post
+    // containers can clip overflow and are frequently re-rendered/recycled by Reddit's own virtual
+    // list as the user scrolls. sheetToken guards against a slow async callback (e.g. the DASH
+    // manifest fetch below) repainting a sheet the user has already dismissed or replaced.
+    var sheetToken = 0;
+    var sheetBackdrop = null;
+
+    function closeActionSheet() {
+        sheetToken++;
+        if (sheetBackdrop && sheetBackdrop.parentNode) {
+            sheetBackdrop.parentNode.removeChild(sheetBackdrop);
+        }
+        sheetBackdrop = null;
+    }
+
+    function showActionSheet(title, items) {
+        closeActionSheet();
+        sheetToken++;
+        var myToken = sheetToken;
+
+        var backdrop = document.createElement('div');
+        backdrop.style.cssText =
+            'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2147483646;';
+        backdrop.addEventListener('click', function (event) {
+            if (event.target === backdrop) {
+                closeActionSheet();
+            }
+        });
+
+        var panel = document.createElement('div');
+        panel.style.cssText =
+            'position:fixed;left:0;right:0;bottom:0;max-height:70vh;overflow-y:auto;' +
+            'background:#1a1a1b;border-radius:12px 12px 0 0;padding:10px 0 4px;' +
+            'font-family:sans-serif;box-shadow:0 -2px 16px rgba(0,0,0,0.4);';
+
+        var titleEl = document.createElement('div');
+        titleEl.textContent = title;
+        titleEl.style.cssText =
+            'padding:6px 16px 10px;font-size:12px;font-weight:700;color:#818384;' +
+            'text-transform:uppercase;letter-spacing:.04em;';
+        panel.appendChild(titleEl);
+
+        for (var i = 0; i < items.length; i++) {
+            (function (item) {
+                var row = document.createElement('button');
+                row.type = 'button';
+                row.textContent = item.label;
+                row.disabled = !!item.disabled;
+                row.style.cssText =
+                    'display:block;width:100%;text-align:left;padding:14px 16px;border:none;' +
+                    'background:transparent;color:' + (item.disabled ? '#565758' : '#d7dadc') + ';' +
+                    'font-size:15px;cursor:' + (item.disabled ? 'default' : 'pointer') + ';' +
+                    'border-bottom:1px solid #343536;';
+                if (!item.disabled && item.action) {
+                    row.addEventListener('click', function () {
+                        closeActionSheet();
+                        item.action();
+                    });
+                }
+                panel.appendChild(row);
+            })(items[i]);
+        }
+
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        cancel.style.cssText =
+            'display:block;width:100%;text-align:center;padding:14px 16px;margin-top:4px;' +
+            'border:none;background:transparent;color:#d7dadc;font-size:15px;font-weight:600;' +
+            'cursor:pointer;';
+        cancel.addEventListener('click', closeActionSheet);
+        panel.appendChild(cancel);
+
+        backdrop.appendChild(panel);
+        document.body.appendChild(backdrop);
+        sheetBackdrop = backdrop;
+        return myToken;
+    }
+
+    // --- DASH manifest parsing, used only to build the video quality menu on demand (not run
+    // during the background scan, to avoid firing a network request per video post just from
+    // scrolling past it). This is the same manifest v.redd.it's own player already fetches, so a
+    // plain same-origin-style GET for it is expected traffic, not something unusual we're adding.
+    function deriveManifestUrl(videoUrl) {
+        try {
+            var parsed = new URL(videoUrl, location.href);
+            if (parsed.hostname.toLowerCase() !== 'v.redd.it') {
+                return null;
+            }
+            var segments = parsed.pathname.split('/');
+            if (segments.length < 2) {
+                return null;
+            }
+            segments[segments.length - 1] = 'DASHPlaylist.mpd';
+            return parsed.origin + segments.join('/');
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function fetchVideoQualityOptions(videoUrl, callback) {
+        var manifestUrl = deriveManifestUrl(videoUrl);
+        if (!manifestUrl || !isAllowedMediaUrl(manifestUrl)) {
+            callback(null);
+            return;
+        }
+        fetch(manifestUrl, { credentials: 'omit' })
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('manifest http ' + response.status);
+                }
+                return response.text();
+            })
+            .then(function (xmlText) {
+                var doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+                if (doc.querySelector('parsererror')) {
+                    throw new Error('manifest did not parse as xml');
+                }
+                var videoReps = [];
+                var audioReps = [];
+                var adaptationSets = doc.getElementsByTagName('AdaptationSet');
+                for (var i = 0; i < adaptationSets.length; i++) {
+                    var set = adaptationSets[i];
+                    var setContentType = set.getAttribute('contentType') || '';
+                    var setMimeType = set.getAttribute('mimeType') || '';
+                    var representations = set.getElementsByTagName('Representation');
+                    for (var j = 0; j < representations.length; j++) {
+                        var rep = representations[j];
+                        var baseUrlEl = rep.getElementsByTagName('BaseURL')[0];
+                        if (!baseUrlEl || !baseUrlEl.textContent) {
+                            continue;
+                        }
+                        var resolvedUrl;
+                        try {
+                            resolvedUrl = new URL(baseUrlEl.textContent.trim(), manifestUrl).href;
+                        } catch (e) {
+                            continue;
+                        }
+                        if (!isAllowedMediaUrl(resolvedUrl)) {
+                            continue;
+                        }
+                        var repMimeType = rep.getAttribute('mimeType') || setMimeType;
+                        var isAudio = setContentType === 'audio' || repMimeType.indexOf('audio') === 0;
+                        var isVideo = setContentType === 'video' || repMimeType.indexOf('video') === 0;
+                        var bandwidth = parseInt(rep.getAttribute('bandwidth') || '0', 10) || 0;
+                        if (isAudio && !isVideo) {
+                            audioReps.push({ url: resolvedUrl, bandwidth: bandwidth });
+                        } else if (isVideo) {
+                            var height = parseInt(rep.getAttribute('height') || '0', 10) || 0;
+                            videoReps.push({ url: resolvedUrl, height: height, bandwidth: bandwidth });
+                        }
+                    }
+                }
+                if (!videoReps.length) {
+                    throw new Error('no usable video representations in manifest');
+                }
+                videoReps.sort(function (a, b) {
+                    return (b.height - a.height) || (b.bandwidth - a.bandwidth);
+                });
+                audioReps.sort(function (a, b) {
+                    return b.bandwidth - a.bandwidth;
+                });
+                callback({ video: videoReps, audioUrl: audioReps.length ? audioReps[0].url : null });
+            })
+            .catch(function () {
+                callback(null);
+            });
+    }
+
+    function qualityLabel(rep) {
+        return rep.height ? rep.height + 'p' : (Math.max(1, Math.round(rep.bandwidth / 1000)) + ' kbps');
+    }
+
+    function openVideoDownloadMenu(media, filenameBase) {
+        var baseItems = [
+            {
+                label: 'Video only (fastest, no audio)',
+                action: function () {
+                    triggerSingleDownload(media.url, filenameBase + '.mp4', 'video');
+                }
+            },
+            {
+                label: 'Copy video link',
+                action: function () {
+                    copyToClipboard(media.url);
+                }
+            }
+        ];
+        var myToken = showActionSheet('Download video', baseItems.concat([
+            { label: 'Loading quality options\u2026', disabled: true }
+        ]));
+
+        fetchVideoQualityOptions(media.url, function (result) {
+            if (sheetToken !== myToken) {
+                // The user already closed or replaced this sheet; don't reopen it from a stale
+                // async callback.
+                return;
+            }
+            var items = baseItems.slice();
+            if (result && result.video.length && result.audioUrl) {
+                var audioUrl = result.audioUrl;
+                for (var i = 0; i < result.video.length; i++) {
+                    (function (rep) {
+                        items.splice(items.length - 1, 0, {
+                            label: qualityLabel(rep) + ' (with audio)',
+                            action: function () {
+                                if (window.ContinuumDownloadBridge &&
+                                        isAllowedMediaUrl(rep.url) && isAllowedMediaUrl(audioUrl)) {
+                                    window.ContinuumDownloadBridge.downloadVideoMuxed(
+                                        rep.url, audioUrl, filenameBase + '.mp4');
+                                }
+                            }
+                        });
+                    })(result.video[i]);
+                }
+            } else {
+                items.splice(items.length - 1, 0, {
+                    label: "Couldn't load quality list \u2014 video-only download still available",
+                    disabled: true
+                });
+            }
+            showActionSheet('Download video', items);
+        });
+    }
+
+    function openImageDownloadMenu(media, filenameBase) {
+        showActionSheet('Download image', [
+            {
+                label: 'Download image',
+                action: function () {
+                    triggerSingleDownload(
+                        media.url, filenameBase + extensionFromUrl(media.url, '.jpg'), 'image');
+                }
+            },
+            {
+                label: 'Copy image link',
+                action: function () {
+                    copyToClipboard(media.url);
+                }
+            }
+        ]);
+    }
+
+    function openGalleryDownloadMenu(media, filenameBase) {
+        var urls = media.galleryUrls;
+        var items = [
+            {
+                label: 'Download all ' + urls.length + ' images',
+                action: function () {
+                    if (window.ContinuumDownloadBridge) {
+                        window.ContinuumDownloadBridge.downloadGalleryAll(
+                            JSON.stringify(urls), filenameBase);
+                    }
+                }
+            }
+        ];
+        for (var i = 0; i < urls.length; i++) {
+            (function (url, index) {
+                items.push({
+                    label: 'Image ' + (index + 1) + ' of ' + urls.length,
+                    action: function () {
+                        triggerSingleDownload(
+                            url, filenameBase + '_' + (index + 1) + extensionFromUrl(url, '.jpg'), 'image');
+                    }
+                });
+            })(urls[i], i);
+        }
+        showActionSheet('Download gallery', items);
+    }
+
     // --- Media detection + a small floating download control per post ---
+    function collectGalleryImages(root) {
+        if (!root || !root.querySelectorAll) {
+            return [];
+        }
+        var imgs = root.querySelectorAll(
+            'img[src^="https://i.redd.it"], img[src^="https://preview.redd.it"], img[src^="https://external-preview.redd.it"]'
+        );
+        var seen = {};
+        var urls = [];
+        for (var i = 0; i < imgs.length; i++) {
+            var src = imgs[i].src;
+            if (src && isAllowedMediaUrl(src) && !seen[src]) {
+                seen[src] = true;
+                urls.push(src);
+            }
+        }
+        return urls;
+    }
+
     function findMediaUrlForPost(postEl) {
         // Direct <img>/<video>/<source> anywhere under the post, including open shadow roots one
         // level deep (shreddit-post's own media elements, and simple nested components).
@@ -94,7 +427,6 @@
 
         for (var r = 0; r < roots.length; r++) {
             var root = roots[r];
-
             var video = root.querySelector && root.querySelector('video');
             if (video) {
                 var videoSrc = video.currentSrc || video.src;
@@ -105,15 +437,32 @@
                     }
                 }
                 if (videoSrc && isAllowedMediaUrl(videoSrc)) {
-                    return { url: videoSrc, type: 'video' };
+                    return { type: 'video', url: videoSrc };
                 }
             }
+        }
 
-            var img = root.querySelector && root.querySelector(
+        // Gallery detection looks for a dedicated carousel component first -- a more reliable
+        // signal than "more than one <img> under the post", since a post card can legitimately
+        // contain one real image plus unrelated avatar/award/thumbnail chrome elsewhere.
+        for (var g = 0; g < roots.length; g++) {
+            var carousel = roots[g].querySelector && roots[g].querySelector(
+                'gallery-carousel, shreddit-gallery-carousel, [data-testid="gallery-carousel"]'
+            );
+            if (carousel) {
+                var galleryUrls = collectGalleryImages(carousel.shadowRoot || carousel);
+                if (galleryUrls.length > 1) {
+                    return { type: 'gallery', url: galleryUrls[0], galleryUrls: galleryUrls };
+                }
+            }
+        }
+
+        for (var s = 0; s < roots.length; s++) {
+            var img = roots[s].querySelector && roots[s].querySelector(
                 'img[src^="https://i.redd.it"], img[src^="https://preview.redd.it"], img[src^="https://external-preview.redd.it"]'
             );
             if (img && img.src && isAllowedMediaUrl(img.src)) {
-                return { url: img.src, type: 'image' };
+                return { type: 'image', url: img.src };
             }
         }
 
@@ -125,13 +474,24 @@
         return (titleEl && titleEl.textContent) ? titleEl.textContent.trim() : 'reddit-media';
     }
 
+    function buttonLabelFor(media) {
+        if (media.type === 'video') {
+            return '\u2b07 Video';
+        }
+        if (media.type === 'gallery') {
+            return '\u2b07 Gallery (' + media.galleryUrls.length + ')';
+        }
+        return '\u2b07 Image';
+    }
+
     function addDownloadControl(postEl, media) {
         if (postEl.querySelector('.continuum-dl-btn')) {
             return;
         }
         var btn = document.createElement('button');
+        btn.type = 'button';
         btn.className = 'continuum-dl-btn';
-        btn.textContent = media.type === 'video' ? '\u2b07 Video' : '\u2b07 Image';
+        btn.textContent = buttonLabelFor(media);
         btn.style.cssText =
             'position:absolute;top:8px;right:8px;z-index:2147483000;padding:6px 10px;' +
             'border:none;border-radius:16px;background:rgba(0,0,0,0.65);color:#fff;' +
@@ -139,10 +499,13 @@
         btn.addEventListener('click', function (event) {
             event.preventDefault();
             event.stopPropagation();
-            var filename = sanitizeFilename(postTitleFor(postEl)) +
-                (media.type === 'video' ? '.mp4' : (media.url.match(/\.[a-zA-Z0-9]+($|\?)/) || ['.jpg'])[0].replace('?', ''));
-            if (window.ContinuumDownloadBridge && isAllowedMediaUrl(media.url)) {
-                window.ContinuumDownloadBridge.downloadMedia(media.url, filename, media.type);
+            var filenameBase = sanitizeFilename(postTitleFor(postEl));
+            if (media.type === 'gallery') {
+                openGalleryDownloadMenu(media, filenameBase);
+            } else if (media.type === 'video') {
+                openVideoDownloadMenu(media, filenameBase);
+            } else {
+                openImageDownloadMenu(media, filenameBase);
             }
         });
 

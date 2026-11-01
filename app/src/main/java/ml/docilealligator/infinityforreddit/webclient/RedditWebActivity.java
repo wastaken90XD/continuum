@@ -60,12 +60,20 @@ import ml.docilealligator.infinityforreddit.R;
  * APIs that don't exist in a plain WebView, and running actual third-party script against this
  * WebView's live session would be a real way to leak or hijack it. That allowlist is reddit.com's
  * own media CDNs only, so it does not recognize a Redlib instance's proxied media URLs -- downloads
- * are a reddit.com-frontend-only feature for now.
+ * are a reddit.com-frontend-only feature for now. The download button opens a small in-page menu
+ * (not a native dialog) rather than downloading immediately: for video posts, quality options read
+ * from v.redd.it's own DASH manifest, each paired with audio; for gallery posts, "download all" plus
+ * one entry per image; for plain images, a "copy link" option alongside the download.
  *
- * <p>Known limitation: v.redd.it serves video and audio as separate streams with no combined file
- * exposed anywhere, so downloaded videos have no audio track. Real muxing (Android's MediaMuxer, or
- * an in-WebView ffmpeg.wasm as some reference scripts use) needs on-device verification that could
- * not be done in the environment this was built in.
+ * <p>v.redd.it serves video and audio as separate streams with no combined file exposed anywhere.
+ * Downloaded videos used to have no audio track because of that. {@link RedditDownloadBridge} now
+ * downloads both streams and merges them with {@code android.media.MediaMuxer}/
+ * {@code MediaExtractor} -- framework classes since API 16/18, well under this app's minSdk 21, so
+ * this needed no new dependency and no ffmpeg binary. That merge path hasn't been exercised on a
+ * real device in the environment this was built in; it follows the documented MediaExtractor-&gt;
+ * MediaMuxer sample-copy pattern exactly, and falls back to the previous video-only download if any
+ * step of the merge fails, so a problem on an actual device degrades gracefully instead of
+ * producing a silently broken file.
  *
  * <p>Does <b>not</b> attempt to cap the WebView's render resolution below the device's native one.
  * An earlier version tried this (shrinking the WebView's own layout bounds, then stretching the
