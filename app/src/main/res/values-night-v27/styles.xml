@@ -1,8 +1,0 @@
-<resources>
-
-    <style name="AppTheme.Launcher" parent="@style/AppTheme.NoActionBarWithTransparentStatusBar">
-        <item name="android:windowBackground">@drawable/splash_screen</item>
-        <item name="android:navigationBarColor">#121212</item>
-    </style>
-
-</resources>
