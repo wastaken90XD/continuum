@@ -8,11 +8,15 @@
 // github.com/mrkwxopya/reddit-media-downloader's "Zero Trust" validation), reimplemented here from
 // scratch against this app's own native download bridge instead of a browser extension API.
 //
-// Known limitation: Reddit's current web app renders with Shadow DOM web components
-// (shreddit-post, shreddit-player, gallery-carousel, ...) whose internal structure Reddit can and
-// does change without notice -- the selectors below are a best-effort snapshot, not a stable
-// contract. If Reddit changes their markup, the worst case is the download button silently stops
-// appearing (fails safe), not a crash.
+// Targets both reddit.com frontends this app can show (see RedditSettings): new Reddit's Shadow
+// DOM web components (shreddit-post, shreddit-player, gallery-carousel, ...) and old.reddit.com's
+// classic server-rendered markup (.thing.link posts, .media-preview-content / .gallery-tile-content
+// expandos). Not run on Redlib -- see RedditWebActivity's javadoc on why that allowlist is
+// reddit.com's own media CDNs only.
+//
+// Known limitation: both of those markups can and do change without notice -- the selectors below
+// are a best-effort snapshot, not a stable contract. If Reddit changes their markup, the worst case
+// is the download button silently stops appearing (fails safe), not a crash.
 //
 // Download menu: clicking the per-post download button opens a small in-page action sheet (built
 // here, not a native Android dialog) listing every option this file can offer for that post --
@@ -442,17 +446,35 @@
             }
         }
 
-        // Gallery detection looks for a dedicated carousel component first -- a more reliable
-        // signal than "more than one <img> under the post", since a post card can legitimately
-        // contain one real image plus unrelated avatar/award/thumbnail chrome elsewhere.
+        // Gallery detection looks for a dedicated gallery signal first -- a more reliable test
+        // than "more than one <img> under the post", since a post card can legitimately contain
+        // one real image plus unrelated avatar/award/thumbnail chrome elsewhere.
         for (var g = 0; g < roots.length; g++) {
-            var carousel = roots[g].querySelector && roots[g].querySelector(
+            var root4 = roots[g];
+
+            // New Reddit: a dedicated gallery carousel web component.
+            var carousel = root4.querySelector && root4.querySelector(
                 'gallery-carousel, shreddit-gallery-carousel, [data-testid="gallery-carousel"]'
             );
             if (carousel) {
-                var galleryUrls = collectGalleryImages(carousel.shadowRoot || carousel);
-                if (galleryUrls.length > 1) {
-                    return { type: 'gallery', url: galleryUrls[0], galleryUrls: galleryUrls };
+                var carouselUrls = collectGalleryImages(carousel.shadowRoot || carousel);
+                if (carouselUrls.length > 1) {
+                    return { type: 'gallery', url: carouselUrls[0], galleryUrls: carouselUrls };
+                }
+            }
+
+            // old.reddit.com: each gallery image sits in its own ".gallery-tile-content" (or
+            // "-item") tile, a sibling pattern to the single-image ".media-preview-content"
+            // expando Reddit documented when it introduced inline expando previews. Requiring at
+            // least 2 tiles (not just "any image on the page") avoids misreading an ordinary
+            // single-image post as a 1-item gallery.
+            var tiles = root4.querySelectorAll && root4.querySelectorAll(
+                '.gallery-tile-content, .gallery-tile, .gallery-item'
+            );
+            if (tiles && tiles.length > 1) {
+                var tileUrls = collectGalleryImages(root4);
+                if (tileUrls.length > 1) {
+                    return { type: 'gallery', url: tileUrls[0], galleryUrls: tileUrls };
                 }
             }
         }
@@ -470,7 +492,8 @@
     }
 
     function postTitleFor(postEl) {
-        var titleEl = postEl.querySelector('[slot="title"], a[slot="title"], h1, h3');
+        // "[slot=title]"/h1/h3 are new Reddit; "a.title" is old.reddit.com's title link.
+        var titleEl = postEl.querySelector('[slot="title"], a[slot="title"], h1, h3, a.title');
         return (titleEl && titleEl.textContent) ? titleEl.textContent.trim() : 'reddit-media';
     }
 
@@ -517,7 +540,11 @@
 
     function scanForMedia() {
         hideKnownOverlays();
-        var posts = document.querySelectorAll('shreddit-post, article, [data-testid="post-container"]');
+        // shreddit-post/article/[data-testid=post-container] are new Reddit; .thing.link is
+        // old.reddit.com's post row (used both in listings and as the OP post on a comments page).
+        var posts = document.querySelectorAll(
+            'shreddit-post, article, [data-testid="post-container"], .thing.link'
+        );
         for (var i = 0; i < posts.length; i++) {
             var media = findMediaUrlForPost(posts[i]);
             if (media) {
